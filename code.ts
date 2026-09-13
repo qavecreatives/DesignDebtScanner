@@ -110,7 +110,7 @@ type FixAction =
       nodeIds: string[];
       variableId: string;
       variableName: string;
-      variableField: 'fill' | VariableBindableNodeField;
+      variableField: 'fill' | 'stroke' | VariableBindableNodeField;
       bindings: Array<{ nodeId: string; paintIndex?: number; field?: VariableBindableNodeField }>;
     };
 
@@ -974,51 +974,14 @@ async function scanStyles(nodes: SceneNode[]): Promise<ScanIssue[]> {
 }
 
 async function scanVariables(nodes: SceneNode[]): Promise<ScanIssue[]> {
-  const localColorVariables = await figma.variables.getLocalVariablesAsync('COLOR');
-  const variablesById = new Map(localColorVariables.map((variable) => [variable.id, variable]));
-  const matches = new Map<string, Array<{ nodeId: string; paintIndex: number }>>();
-
-  for (const node of nodes) {
-    if (!('fills' in node) || !Array.isArray(node.fills)) continue;
-    const inferredFills = node.inferredVariables?.fills;
-    if (!inferredFills) continue;
-    for (let paintIndex = 0; paintIndex < inferredFills.length; paintIndex += 1) {
-      const aliases = inferredFills[paintIndex] ?? [];
-      for (const alias of aliases) {
-        if (!variablesById.has(alias.id)) continue;
-        const bindings = matches.get(alias.id) ?? [];
-        bindings.push({ nodeId: node.id, paintIndex });
-        matches.set(alias.id, bindings);
-        break;
-      }
-    }
-  }
-
+  const [localColorVariables, localFloatVariables] = await Promise.all([
+    figma.variables.getLocalVariablesAsync('COLOR'),
+    figma.variables.getLocalVariablesAsync('FLOAT'),
+  ]);
+  const colorById = new Map(localColorVariables.map((variable) => [variable.id, variable]));
+  const floatById = new Map(localFloatVariables.map((variable) => [variable.id, variable]));
   const issues: ScanIssue[] = [];
-  for (const [variableId, bindings] of matches) {
-    const variable = variablesById.get(variableId);
-    if (!variable) continue;
-    const nodeIds = [...new Set(bindings.map((binding) => binding.nodeId))];
-    issues.push({
-      id: `variable-color-${variableId}-${nodeIds.join('-')}`,
-      category: 'variables',
-      severity: 'low',
-      title: `Color matches variable: ${variable.name}`,
-      description: `${nodeIds.length} layer${nodeIds.length === 1 ? '' : 's'} use a color that matches “${variable.name}” but are not bound to that color variable.`,
-      nodeIds,
-      fix: {
-        type: 'variable',
-        nodeIds,
-        variableId,
-        variableName: variable.name,
-        variableField: 'fill',
-        bindings,
-      },
-    });
-  }
-
-  const localFloatVariables = await figma.variables.getLocalVariablesAsync('FLOAT');
-  const floatVariablesById = new Map(localFloatVariables.map((variable) => [variable.id, variable]));
+  const matches = new Map<string, { variableId: string; variableName: string; field: 'fill' | 'stroke' | VariableBindableNodeField; bindings: Array<{ nodeId: string; paintIndex?: number; field?: VariableBindableNodeField }> }>();
   const numericFields: Array<{ field: VariableBindableNodeField; label: string }> = [
     { field: 'itemSpacing', label: 'gap' },
     { field: 'paddingTop', label: 'top padding' },
@@ -1030,49 +993,84 @@ async function scanVariables(nodes: SceneNode[]): Promise<ScanIssue[]> {
     { field: 'topRightRadius', label: 'top-right radius' },
     { field: 'bottomRightRadius', label: 'bottom-right radius' },
     { field: 'bottomLeftRadius', label: 'bottom-left radius' },
+    { field: 'gridRowGap', label: 'grid row gap' },
+    { field: 'gridColumnGap', label: 'grid column gap' },
+    { field: 'width', label: 'width' },
+    { field: 'height', label: 'height' },
   ];
-  const numericMatches = new Map<string, Array<{ nodeId: string; field: VariableBindableNodeField }>>();
+  const usedVariableIds = new Set<string>();
+  const collectAliasIds = (value: unknown): void => {
+    if (!value) return;
+    if (Array.isArray(value)) { value.forEach(collectAliasIds); return; }
+    if (typeof value !== 'object') return;
+    const record = value as Record<string, unknown>;
+    if (record.type === 'VARIABLE_ALIAS' && typeof record.id === 'string') usedVariableIds.add(record.id);
+    Object.values(record).forEach(collectAliasIds);
+  };
+  const addMatch = (variableId: string, variableName: string, field: 'fill' | 'stroke' | VariableBindableNodeField, binding: { nodeId: string; paintIndex?: number; field?: VariableBindableNodeField }): void => {
+    const key = `${variableId}\u0000${field}`;
+    const match = matches.get(key) ?? { variableId, variableName, field, bindings: [] };
+    match.bindings.push(binding);
+    matches.set(key, match);
+  };
 
   for (const node of nodes) {
+    collectAliasIds(node.boundVariables);
+    const inferredFills = node.inferredVariables?.fills;
+    if (inferredFills) {
+      for (let paintIndex = 0; paintIndex < inferredFills.length; paintIndex += 1) {
+        for (const alias of inferredFills[paintIndex] ?? []) {
+          const variable = colorById.get(alias.id);
+          if (variable) { addMatch(variable.id, variable.name, 'fill', { nodeId: node.id, paintIndex }); break; }
+        }
+      }
+    }
+    const inferredStrokes = node.inferredVariables?.strokes;
+    if (inferredStrokes) {
+      for (let paintIndex = 0; paintIndex < inferredStrokes.length; paintIndex += 1) {
+        for (const alias of inferredStrokes[paintIndex] ?? []) {
+          const variable = colorById.get(alias.id);
+          if (variable) { addMatch(variable.id, variable.name, 'stroke', { nodeId: node.id, paintIndex }); break; }
+        }
+      }
+    }
     const inferred = node.inferredVariables as { [field: string]: VariableAlias | undefined } | undefined;
     if (!inferred) continue;
     for (const { field } of numericFields) {
+      if ((field === 'width' || field === 'height') && !isSafeDimensionNode(node)) continue;
       const alias = inferred[field];
-      if (!alias || !floatVariablesById.has(alias.id)) continue;
-      const key = `${alias.id}\u0000${field}`;
-      const bindings = numericMatches.get(key) ?? [];
-      bindings.push({ nodeId: node.id, field });
-      numericMatches.set(key, bindings);
+      const variable = alias ? floatById.get(alias.id) : undefined;
+      if (variable) addMatch(variable.id, variable.name, field, { nodeId: node.id, field });
     }
   }
 
-  for (const [key, bindings] of numericMatches) {
-    const [variableId, field] = key.split('\u0000') as [string, VariableBindableNodeField];
-    const variable = floatVariablesById.get(variableId);
-    const fieldLabel = numericFields.find((item) => item.field === field)?.label ?? field;
-    if (!variable) continue;
-    const nodeIds = [...new Set(bindings.map((binding) => binding.nodeId))];
+  for (const match of matches.values()) {
+    const nodeIds = [...new Set(match.bindings.map((binding) => binding.nodeId))];
+    const fieldLabel = match.field === 'fill' ? 'color fill' : match.field === 'stroke' ? 'stroke color' : match.field.replace(/([A-Z])/g, ' $1').toLowerCase();
     issues.push({
-      id: `variable-number-${variableId}-${field}-${nodeIds.join('-')}`,
+      id: `variable-${match.variableId}-${match.field}-${nodeIds.join('-')}`,
       category: 'variables',
       severity: 'low',
-      title: `${fieldLabel[0].toUpperCase()}${fieldLabel.slice(1)} matches variable: ${variable.name}`,
-      description: `${nodeIds.length} layer${nodeIds.length === 1 ? '' : 's'} use a ${fieldLabel} value that matches “${variable.name}” but are not bound to that FLOAT variable.`,
+      title: `${fieldLabel[0].toUpperCase()}${fieldLabel.slice(1)} matches variable: ${match.variableName}`,
+      description: `${nodeIds.length} layer${nodeIds.length === 1 ? '' : 's'} use a ${fieldLabel} value that matches “${match.variableName}” but are not bound to that variable.`,
       nodeIds,
-      fix: {
-        type: 'variable',
-        nodeIds,
-        variableId,
-        variableName: variable.name,
-        variableField: field,
-        bindings,
-      },
+      fix: { type: 'variable', nodeIds, variableId: match.variableId, variableName: match.variableName, variableField: match.field, bindings: match.bindings },
     });
   }
 
+  for (const variable of [...localColorVariables, ...localFloatVariables]) {
+    if (usedVariableIds.has(variable.id) || matches.has(`${variable.id}\u0000fill`) || matches.has(`${variable.id}\u0000stroke`)) continue;
+    issues.push({
+      id: `variable-unused-${variable.id}`,
+      category: 'variables',
+      severity: 'low',
+      title: `Unused variable in scanned scope: ${variable.name}`,
+      description: `No scanned layer is currently bound to “${variable.name}”. It may still be used elsewhere in the file or on another page.`,
+      nodeIds: [],
+    });
+  }
   return issues;
 }
-
 async function getVariableCoverage(nodes: SceneNode[]): Promise<VariableCoverage> {
   const [colorVariables, floatVariables] = await Promise.all([
     figma.variables.getLocalVariablesAsync('COLOR'),
@@ -1090,6 +1088,13 @@ async function getVariableCoverage(nodes: SceneNode[]): Promise<VariableCoverage
         if (node.fills[index].type !== 'SOLID') continue;
         tokenizableValues += 1;
         if (node.boundVariables?.fills?.[index]) boundValues += 1;
+      }
+    }
+    if ('strokes' in node && Array.isArray(node.strokes)) {
+      for (let index = 0; index < node.strokes.length; index += 1) {
+        if (node.strokes[index].type !== 'SOLID') continue;
+        tokenizableValues += 1;
+        if (node.boundVariables?.strokes?.[index]) boundValues += 1;
       }
     }
     const bound = node.boundVariables as { [field: string]: VariableAlias | undefined } | undefined;
@@ -1422,7 +1427,7 @@ async function applyVariableFix(fix: Extract<FixAction, { type: 'variable' }>): 
   const variable = await figma.variables.getVariableByIdAsync(fix.variableId);
   if (!variable || variable.remote) return 0;
 
-  if (fix.variableField !== 'fill') {
+  if (fix.variableField !== 'fill' && fix.variableField !== 'stroke') {
     if (variable.resolvedType !== 'FLOAT') return 0;
     let changed = 0;
     for (const binding of fix.bindings) {
@@ -1435,7 +1440,6 @@ async function applyVariableFix(fix: Extract<FixAction, { type: 'variable' }>): 
   }
 
   if (variable.resolvedType !== 'COLOR') return 0;
-
   const bindingsByNode = new Map<string, number[]>();
   for (const binding of fix.bindings) {
     if (binding.paintIndex === undefined) continue;
@@ -1443,26 +1447,24 @@ async function applyVariableFix(fix: Extract<FixAction, { type: 'variable' }>): 
     indexes.push(binding.paintIndex);
     bindingsByNode.set(binding.nodeId, indexes);
   }
-
   let changed = 0;
   for (const [nodeId, paintIndexes] of bindingsByNode) {
     const node = await getSceneNode(nodeId);
-    if (!node || !('fills' in node) || !Array.isArray(node.fills) || !('setFillsAsync' in node)) continue;
-
+    const paints = fix.variableField === 'fill' ? ('fills' in (node ?? {}) ? (node as SceneNode & { fills: readonly Paint[] }).fills : null) : ('strokes' in (node ?? {}) ? (node as SceneNode & { strokes: readonly Paint[] }).strokes : null);
+    if (!node || !paints || !Array.isArray(paints)) continue;
     let changedPaint = false;
-    const fills = node.fills.map((paint, index) => {
+    const nextPaints = paints.map((paint, index) => {
       if (!paintIndexes.includes(index) || paint.type !== 'SOLID') return paint;
       changedPaint = true;
       return figma.variables.setBoundVariableForPaint(paint, 'color', variable);
     });
-    if (changedPaint) {
-      await node.setFillsAsync(fills);
-      changed += 1;
-    }
+    if (!changedPaint) continue;
+    if (fix.variableField === 'fill' && 'setFillsAsync' in node) await node.setFillsAsync(nextPaints);
+    if (fix.variableField === 'stroke' && 'setStrokesAsync' in node) await node.setStrokesAsync(nextPaints);
+    changed += 1;
   }
   return changed;
 }
-
 figma.ui.onmessage = async (msg: {
   type: string;
   options?: ScanOptions;
