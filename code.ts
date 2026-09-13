@@ -38,6 +38,13 @@ type AccessibilityDetails = {
   suggestedRatio?: number;
 };
 
+type VariableCoverage = {
+  localVariableCount: number;
+  boundValues: number;
+  tokenizableValues: number;
+  percentage: number;
+};
+
 type FixAction =
   | {
       type: 'color';
@@ -1066,7 +1073,40 @@ async function scanVariables(nodes: SceneNode[]): Promise<ScanIssue[]> {
   return issues;
 }
 
-async function scan(options: ScanOptions): Promise<{ issues: ScanIssue[]; nodeCount: number }> {
+async function getVariableCoverage(nodes: SceneNode[]): Promise<VariableCoverage> {
+  const [colorVariables, floatVariables] = await Promise.all([
+    figma.variables.getLocalVariablesAsync('COLOR'),
+    figma.variables.getLocalVariablesAsync('FLOAT'),
+  ]);
+  const numericFields: VariableBindableNodeField[] = [
+    'itemSpacing', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+    'cornerRadius', 'topLeftRadius', 'topRightRadius', 'bottomRightRadius', 'bottomLeftRadius',
+  ];
+  let boundValues = 0;
+  let tokenizableValues = 0;
+  for (const node of nodes) {
+    if ('fills' in node && Array.isArray(node.fills)) {
+      for (let index = 0; index < node.fills.length; index += 1) {
+        if (node.fills[index].type !== 'SOLID') continue;
+        tokenizableValues += 1;
+        if (node.boundVariables?.fills?.[index]) boundValues += 1;
+      }
+    }
+    const bound = node.boundVariables as { [field: string]: VariableAlias | undefined } | undefined;
+    for (const field of numericFields) {
+      if (!(field in node) || typeof (node as unknown as Record<string, unknown>)[field] !== 'number') continue;
+      tokenizableValues += 1;
+      if (bound?.[field]) boundValues += 1;
+    }
+  }
+  return {
+    localVariableCount: colorVariables.length + floatVariables.length,
+    boundValues,
+    tokenizableValues,
+    percentage: tokenizableValues === 0 ? 0 : Math.round((boundValues / tokenizableValues) * 100),
+  };
+}
+async function scan(options: ScanOptions): Promise<{ issues: ScanIssue[]; nodeCount: number; variableCoverage?: VariableCoverage }> {
   reportScanProgress('Collecting layers…');
   const nodes = collectNodes(getNodesToScan(options.scope));
   const issues: ScanIssue[] = [];
@@ -1130,7 +1170,8 @@ async function scan(options: ScanOptions): Promise<{ issues: ScanIssue[]; nodeCo
     await yieldDuringScan();
   }
   reportScanProgress('Preparing results…');
-  return { issues, nodeCount: nodes.length };
+  const variableCoverage = options.categories.includes('variables') ? await getVariableCoverage(nodes) : undefined;
+  return { issues, nodeCount: nodes.length, variableCoverage };
 }
 
 async function getSceneNode(nodeId: string): Promise<SceneNode | null> {

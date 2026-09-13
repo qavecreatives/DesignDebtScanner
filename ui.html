@@ -114,6 +114,7 @@
     const results = document.getElementById('results');
     let currentResult = null;
     let lastScannedCategories = [];
+    let lastScannedScope = 'page';
     let scanInProgress = false;
     let ignoredIssueIds = new Set();
     try {
@@ -187,6 +188,7 @@
       }
       setScanInProgress(true);
       lastScannedCategories = categories;
+      lastScannedScope = scope;
       window.setTimeout(() => post({ type: 'scan', options: { scope, categories } }), 0);
     };
 
@@ -221,7 +223,7 @@
       const issues = result.issues || [];
       const activeIssues = issues.filter((issue) => !ignoredIssueIds.has(issue.id));
       const ignoredIssues = issues.filter((issue) => ignoredIssueIds.has(issue.id));
-      let html = `<div class="summary"><strong>${activeIssues.length}</strong> active issue${activeIssues.length === 1 ? '' : 's'} found${ignoredIssues.length ? ` · ${ignoredIssues.length} ignored` : ''} · ${result.nodeCount} layer${result.nodeCount === 1 ? '' : 's'} inspected</div>`;
+      let html = `<div class="summary"><strong>${activeIssues.length}</strong> active issue${activeIssues.length === 1 ? '' : 's'} found${ignoredIssues.length ? ` · ${ignoredIssues.length} ignored` : ''} · ${result.nodeCount} layer${result.nodeCount === 1 ? '' : 's'} inspected${result.variableCoverage ? ` · Variables: ${result.variableCoverage.percentage}% bound (${result.variableCoverage.boundValues}/${result.variableCoverage.tokenizableValues})` : ''}</div>`;
       if (issues.length === 0) html += '<div class="empty">No issues found by the current checks.</div>';
 
       for (const issue of issues) {
@@ -539,7 +541,14 @@
         if (description && message.changed > 0) {
           results.querySelectorAll('.undo-fix').forEach((undoButton) => undoButton.remove());
           card.querySelectorAll('.fixed').forEach((feedback) => feedback.remove());
-          description.insertAdjacentHTML('afterend', `<div class="fixed">✓ Successfully fixed ${message.changed} layer${message.changed === 1 ? '' : 's'}.<br><button class="undo-fix">Undo last scanner change</button></div>`);
+          description.insertAdjacentHTML('afterend', `<div class="fixed">✓ Successfully fixed ${message.changed} layer${message.changed === 1 ? '' : 's'}.<br><button class="undo-fix">Undo last scanner change</button> <button class="rescan-results">Rescan results</button></div>`);
+          const rescanButton = card.querySelector('.rescan-results');
+          if (rescanButton) {
+            rescanButton.onclick = () => {
+              setScanInProgress(true);
+              window.setTimeout(() => post({ type: 'scan', options: { scope: lastScannedScope, categories: lastScannedCategories } }), 0);
+            };
+          }
           const undoButton = card.querySelector('.undo-fix');
           if (undoButton) {
             undoButton.onclick = () => {
