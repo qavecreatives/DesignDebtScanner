@@ -9,6 +9,8 @@ type ScanCategory =
   | 'naming'
   | 'styles'
   | 'variables'
+  | 'layout'
+  | 'structure'
   | 'accessibility';
 
 type ScanOptions = {
@@ -52,6 +54,13 @@ type FixAction =
       sourceColor: RGB;
       targetColor: RGB;
       sourceHex: string;
+      targetHex: string;
+    }
+  | {
+      type: 'accessibility';
+      nodeIds: string[];
+      sourceColor: RGB;
+      targetColor: RGB;
       targetHex: string;
     }
   | {
@@ -112,6 +121,12 @@ type FixAction =
       variableName: string;
       variableField: 'fill' | 'stroke' | VariableBindableNodeField;
       bindings: Array<{ nodeId: string; paintIndex?: number; field?: VariableBindableNodeField }>;
+    }
+  | {
+      type: 'layout';
+      nodeIds: string[];
+      targetHorizontal: 'FIXED' | 'HUG' | 'FILL';
+      targetVertical: 'FIXED' | 'HUG' | 'FILL';
     };
 
 type ScanIssue = {
@@ -124,6 +139,11 @@ type ScanIssue = {
   fix?: FixAction;
   colorOptions?: ColorOption[];
   componentOptions?: ComponentOption[];
+  layoutOptions?: Array<{
+    label: string;
+    targetHorizontal: 'FIXED' | 'HUG' | 'FILL';
+    targetVertical: 'FIXED' | 'HUG' | 'FILL';
+  }>;
   accessibilityDetails?: AccessibilityDetails;
 };
 
@@ -191,18 +211,66 @@ function getNodesToScan(scope: ScanOptions['scope']): readonly SceneNode[] {
     : figma.currentPage.children;
 }
 
-function collectNodes(nodes: readonly SceneNode[]): SceneNode[] {
+async function collectNodes(nodes: readonly SceneNode[]): Promise<SceneNode[]> {
   const result: SceneNode[] = [];
+  const stack = [...nodes].reverse();
+  let visited = 0;
 
-  function walk(node: SceneNode): void {
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) continue;
     result.push(node);
+    visited += 1;
+
     if ('children' in node) {
-      for (const child of node.children) walk(child);
+      for (let index = node.children.length - 1; index >= 0; index -= 1) {
+        stack.push(node.children[index]);
+      }
+    }
+
+    if (visited % 250 === 0) {
+      reportScanProgress(`Collecting layers… ${visited.toLocaleString()} found`);
+      await yieldDuringScan();
     }
   }
 
-  for (const node of nodes) walk(node);
   return result;
+}
+
+type ScanNodeIndex = {
+  all: SceneNode[];
+  text: TextNode[];
+  paintable: SceneNode[];
+  autoLayout: SceneNode[];
+  rounded: SceneNode[];
+  sized: SceneNode[];
+  components: ComponentNode[];
+  instances: InstanceNode[];
+};
+
+function buildNodeIndex(nodes: SceneNode[]): ScanNodeIndex {
+  const index: ScanNodeIndex = {
+    all: nodes,
+    text: [],
+    paintable: [],
+    autoLayout: [],
+    rounded: [],
+    sized: [],
+    components: [],
+    instances: [],
+  };
+
+  for (const node of nodes) {
+    if (node.type === 'TEXT') index.text.push(node);
+    if ('fills' in node || 'strokes' in node) index.paintable.push(node);
+    if ('layoutMode' in node && node.layoutMode !== 'NONE') index.autoLayout.push(node);
+    if ('cornerRadius' in node && typeof node.cornerRadius === 'number') index.rounded.push(node);
+    if ('width' in node && 'height' in node) index.sized.push(node);
+    if (node.type === 'COMPONENT') index.components.push(node);
+    if (node.type === 'INSTANCE') index.instances.push(node);
+  }
+
+  return index;
 }
 
 function colorDistance(a: RGB, b: RGB): number {
@@ -218,6 +286,14 @@ function colorToHex(color: RGB): string {
   return `#${channel(color.r)}${channel(color.g)}${channel(color.b)}`.toUpperCase();
 }
 
+function hexToColor(hex: string): RGB {
+  const normalized = hex.replace('#', '');
+  return {
+    r: parseInt(normalized.slice(0, 2), 16) / 255,
+    g: parseInt(normalized.slice(2, 4), 16) / 255,
+    b: parseInt(normalized.slice(4, 6), 16) / 255,
+  };
+}
 function colorsMatch(a: RGB, b: RGB, threshold = 0.001): boolean {
   return colorDistance(a, b) <= threshold;
 }
@@ -525,10 +601,12 @@ function scanButtons(nodes: SceneNode[]): ScanIssue[] {
   return issues;
 }
 
-async function scanComponents(nodes: SceneNode[]): Promise<ScanIssue[]> {
-  const components = nodes.filter((node) => node.type === 'COMPONENT');
+async function scanComponents(components: ComponentNode[], instances: InstanceNode[]): Promise<ScanIssue[]> {
   const groups = new Map<string, SceneNode[]>();
+  let componentNodeIndex = 0;
   for (const node of components) {
+    componentNodeIndex += 1;
+    if (componentNodeIndex % 250 === 0) await yieldDuringScan();
     const signature = componentSignature(node as ComponentNode);
     const groupKey = `${node.name}\u0000${signature}`;
     const group = groups.get(groupKey) ?? [];
@@ -536,21 +614,19 @@ async function scanComponents(nodes: SceneNode[]): Promise<ScanIssue[]> {
     groups.set(groupKey, group);
   }
 
+  const instanceResults = await Promise.all(instances.map(async (instance) => ({
+    id: instance.id,
+    mainComponent: await instance.getMainComponentAsync(),
+  })));
   const issues: ScanIssue[] = [];
+  let componentGroupIndex = 0;
   for (const [groupKey, matchingNodes] of groups) {
+    componentGroupIndex += 1;
+    if (componentGroupIndex % 10 === 0) await yieldDuringScan();
     if (matchingNodes.length < 2) continue;
     const name = groupKey.split('\u0000')[0];
     const duplicateIds = matchingNodes.map((node) => node.id);
-    const instanceIds = (await Promise.all(
-      nodes
-        .filter((node): node is InstanceNode => node.type === 'INSTANCE')
-        .map(async (node) => {
-          const mainComponent = await node.getMainComponentAsync();
-          return mainComponent && duplicateIds.includes(mainComponent.id)
-            ? node.id
-            : null;
-        }),
-    )).filter((nodeId): nodeId is string => nodeId !== null);
+    const instanceIds = instanceResults.filter((result) => result.mainComponent && duplicateIds.includes(result.mainComponent.id)).map((result) => result.id);
     issues.push({
       id: `duplicate-components-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
       category: 'components',
@@ -568,9 +644,52 @@ async function scanComponents(nodes: SceneNode[]): Promise<ScanIssue[]> {
       },
     });
   }
+  const detachedInstances = instanceResults.filter((result) => !result.mainComponent).map((result) => result.id);
+  if (detachedInstances.length > 0) {
+    issues.push({
+      id: 'detached-component-instances',
+      category: 'components',
+      severity: 'medium',
+      title: 'Detached component instances',
+      description: `${detachedInstances.length} instance${detachedInstances.length === 1 ? '' : 's'} no longer connect to a main component. Review whether they should be rebuilt as instances or kept as independent layers.`,
+      nodeIds: detachedInstances,
+    });
+  }
+  const referencedComponentIds = new Set(instanceResults.map((result) => result.mainComponent?.id).filter((id): id is string => Boolean(id)));
+  const unusedComponents = components.filter((component) => !referencedComponentIds.has(component.id));
+  if (unusedComponents.length > 0) {
+    issues.push({
+      id: 'unused-component-definitions',
+      category: 'components',
+      severity: 'low',
+      title: 'Unused component definitions',
+      description: `${unusedComponents.length} component definition${unusedComponents.length === 1 ? '' : 's'} have no matching instances in the scanned scope. They may be intentional source components or old leftovers; review before deleting anything.`,
+      nodeIds: unusedComponents.map((component) => component.id),
+    });
+  }
   return issues;
 }
 
+function scanStructure(nodes: SceneNode[]): ScanIssue[] {
+  const deeplyNested = nodes.filter((node) => {
+    let depth = 0;
+    let parent = node.parent;
+    while (parent && parent.type !== 'PAGE' && parent.type !== 'DOCUMENT') {
+      depth += 1;
+      parent = parent.parent;
+    }
+    return depth >= 8;
+  });
+  if (deeplyNested.length === 0) return [];
+  return [{
+    id: 'structure-deep-nesting',
+    category: 'structure',
+    severity: 'low',
+    title: 'Deeply nested structure',
+    description: `${deeplyNested.length} layer${deeplyNested.length === 1 ? '' : 's'} are nested eight or more levels deep. Deep nesting can make navigation, maintenance, and responsive behavior harder to reason about.`,
+    nodeIds: deeplyNested.map((node) => node.id),
+  }];
+}
 function componentSignature(node: ComponentNode): string {
   function signatureFor(child: SceneNode): string {
     const dimensions = 'width' in child && 'height' in child
@@ -584,7 +703,7 @@ function componentSignature(node: ComponentNode): string {
   return signatureFor(node);
 }
 
-function scanNaming(nodes: SceneNode[]): ScanIssue[] {
+async function scanNaming(nodes: SceneNode[]): Promise<ScanIssue[]> {
   const issues: ScanIssue[] = [];
   const genericNamePattern = /^(component|instance|section)\s+\d+$/i;
   const genericNodes = nodes.filter((node) => genericNamePattern.test(node.name.trim()));
@@ -601,7 +720,10 @@ function scanNaming(nodes: SceneNode[]): ScanIssue[] {
   }
 
   const namesByParent = new Map<string, Map<string, SceneNode[]>>();
+  let namingNodeIndex = 0;
   for (const node of nodes) {
+    namingNodeIndex += 1;
+    if (namingNodeIndex % 250 === 0) await yieldDuringScan();
     if (node.type === 'TEXT' || node.type === 'GROUP' || node.type === 'VECTOR') continue;
     const parentId = node.parent?.id ?? 'root';
     const names = namesByParent.get(parentId) ?? new Map<string, SceneNode[]>();
@@ -671,10 +793,13 @@ function contrastRatio(foreground: RGB, background: RGB): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-function scanAccessibility(nodes: SceneNode[]): ScanIssue[] {
+async function scanAccessibility(nodes: SceneNode[]): Promise<ScanIssue[]> {
   const issues: ScanIssue[] = [];
 
+  let accessibilityNodeIndex = 0;
   for (const node of nodes) {
+    accessibilityNodeIndex += 1;
+    if (accessibilityNodeIndex % 250 === 0) await yieldDuringScan();
     if (node.type !== 'TEXT' || !Array.isArray(node.fills)) continue;
     const textColor = getSolidFill(node);
     if (!textColor) continue;
@@ -715,6 +840,7 @@ function scanAccessibility(nodes: SceneNode[]): ScanIssue[] {
       title: 'Insufficient text contrast',
       description: `${humanLayerType(node)} uses text ${textHex} on background ${backgroundHex}: ${ratio}:1 contrast. WCAG AA requires at least ${requiredRatio}:1 for ${isLargeText ? 'large' : 'normal'} text. ${suggestionText}`,
       nodeIds: [node.id],
+      fix: bestSuggestion ? { type: 'accessibility', nodeIds: [node.id], sourceColor: textColor, targetColor: hexToColor(bestSuggestion.hex), targetHex: bestSuggestion.hex } : undefined,
       accessibilityDetails: {
         layerType: humanLayerType(node),
         textHex,
@@ -743,9 +869,12 @@ function dimensionLayerType(node: SceneNode): string {
   }
 }
 
-function scanDimensions(nodes: SceneNode[]): ScanIssue[] {
+async function scanDimensions(nodes: SceneNode[]): Promise<ScanIssue[]> {
   const byType = new Map<string, SceneNode[]>();
+  let dimensionNodeIndex = 0;
   for (const node of nodes) {
+    dimensionNodeIndex += 1;
+    if (dimensionNodeIndex % 250 === 0) await yieldDuringScan();
     if (!('width' in node) || !('height' in node)) continue;
     const type = dimensionLayerType(node);
     const group = byType.get(type) ?? [];
@@ -796,16 +925,6 @@ function scanDimensions(nodes: SceneNode[]): ScanIssue[] {
       }
     }
 
-    if (!issues.some((issue) => issue.id.includes(`dimensions-drift-${layerType}-`))) {
-      issues.push({
-        id: `dimensions-${layerType}-${dominant[0]}`,
-        category: 'dimensions',
-        severity: 'low',
-        title: `Repeated ${layerType} dimensions: ${dominant[0]}`,
-        description: `${dominant[1].length} affected ${layerType}${dominant[1].length === 1 ? '' : 's'} share these dimensions.`,
-        nodeIds: dominant[1].map((node) => node.id),
-      });
-    }
   }
   return issues;
 }
@@ -859,7 +978,10 @@ async function scanStyles(nodes: SceneNode[]): Promise<ScanIssue[]> {
   }));
 
   const duplicateGroups = new Map<string, Array<PaintStyle | TextStyle>>();
+  let unusedStyleIndex = 0;
   for (const style of allStyles) {
+    unusedStyleIndex += 1;
+    if (unusedStyleIndex % 25 === 0) await yieldDuringScan();
     const signature = style.type === 'PAINT'
       ? `paint:${JSON.stringify(style.paints)}`
       : `text:${JSON.stringify({
@@ -874,7 +996,10 @@ async function scanStyles(nodes: SceneNode[]): Promise<ScanIssue[]> {
     duplicateGroups.set(signature, group);
   }
 
+  let duplicateGroupIndex = 0;
   for (const duplicateStyles of duplicateGroups.values()) {
+    duplicateGroupIndex += 1;
+    if (duplicateGroupIndex % 10 === 0) await yieldDuringScan();
     if (duplicateStyles.length < 2) continue;
     const canonical = [...duplicateStyles].sort(
       (a, b) => (consumersByStyleId.get(b.id)?.length ?? 0) - (consumersByStyleId.get(a.id)?.length ?? 0),
@@ -926,7 +1051,10 @@ async function scanStyles(nodes: SceneNode[]): Promise<ScanIssue[]> {
     });
   }
 
+  let paintStyleIndex = 0;
   for (const style of paintStyles) {
+    paintStyleIndex += 1;
+    if (paintStyleIndex % 10 === 0) await yieldDuringScan();
     const styleColor = getStyleSolidColor(style);
     if (!styleColor) continue;
     const affected = nodes.filter((node) => {
@@ -950,7 +1078,10 @@ async function scanStyles(nodes: SceneNode[]): Promise<ScanIssue[]> {
     });
   }
 
+  let textStyleIndex = 0;
   for (const style of textStyles) {
+    textStyleIndex += 1;
+    if (textStyleIndex % 10 === 0) await yieldDuringScan();
     const affected = nodes.filter((node) => {
       if (node.type !== 'TEXT' || !('textStyleId' in node) || !('setTextStyleIdAsync' in node)) return false;
       if (node.textStyleId !== '' || node.fontName === figma.mixed || typeof node.fontSize !== 'number') return false;
@@ -1014,7 +1145,10 @@ async function scanVariables(nodes: SceneNode[]): Promise<ScanIssue[]> {
     matches.set(key, match);
   };
 
+  let variableNodeIndex = 0;
   for (const node of nodes) {
+    variableNodeIndex += 1;
+    if (variableNodeIndex % 250 === 0) await yieldDuringScan();
     collectAliasIds(node.boundVariables);
     const inferredFills = node.inferredVariables?.fills;
     if (inferredFills) {
@@ -1058,7 +1192,10 @@ async function scanVariables(nodes: SceneNode[]): Promise<ScanIssue[]> {
     });
   }
 
+  let unusedVariableIndex = 0;
   for (const variable of [...localColorVariables, ...localFloatVariables]) {
+    unusedVariableIndex += 1;
+    if (unusedVariableIndex % 25 === 0) await yieldDuringScan();
     if (usedVariableIds.has(variable.id) || matches.has(`${variable.id}\u0000fill`) || matches.has(`${variable.id}\u0000stroke`)) continue;
     issues.push({
       id: `variable-unused-${variable.id}`,
@@ -1082,7 +1219,10 @@ async function getVariableCoverage(nodes: SceneNode[]): Promise<VariableCoverage
   ];
   let boundValues = 0;
   let tokenizableValues = 0;
+  let coverageNodeIndex = 0;
   for (const node of nodes) {
+    coverageNodeIndex += 1;
+    if (coverageNodeIndex % 250 === 0) await yieldDuringScan();
     if ('fills' in node && Array.isArray(node.fills)) {
       for (let index = 0; index < node.fills.length; index += 1) {
         if (node.fills[index].type !== 'SOLID') continue;
@@ -1111,72 +1251,165 @@ async function getVariableCoverage(nodes: SceneNode[]): Promise<VariableCoverage
     percentage: tokenizableValues === 0 ? 0 : Math.round((boundValues / tokenizableValues) * 100),
   };
 }
-async function scan(options: ScanOptions): Promise<{ issues: ScanIssue[]; nodeCount: number; variableCoverage?: VariableCoverage }> {
-  reportScanProgress('Collecting layers…');
-  const nodes = collectNodes(getNodesToScan(options.scope));
+async function getFullDocumentNodes(): Promise<SceneNode[]> {
+  await figma.loadAllPagesAsync();
+  const nodes: SceneNode[] = [];
+  for (const page of figma.root.children) nodes.push(...await collectNodes(page.children));
+  return nodes;
+}
+
+async function scanLayout(nodes: SceneNode[]): Promise<ScanIssue[]> {
   const issues: ScanIssue[] = [];
+  let layoutNodeIndex = 0;
+  for (const parent of nodes) {
+    layoutNodeIndex += 1;
+    if (layoutNodeIndex % 250 === 0) await yieldDuringScan();
+    if (!('layoutMode' in parent) || parent.layoutMode === 'NONE' || !('children' in parent)) continue;
+    const children = parent.children.filter((child) => 'layoutSizingHorizontal' in child && 'layoutSizingVertical' in child);
+    if (children.length < 2) continue;
+
+    const horizontalCounts = new Map<string, number>();
+    const verticalCounts = new Map<string, number>();
+    for (const child of children) {
+      horizontalCounts.set(child.layoutSizingHorizontal, (horizontalCounts.get(child.layoutSizingHorizontal) ?? 0) + 1);
+      verticalCounts.set(child.layoutSizingVertical, (verticalCounts.get(child.layoutSizingVertical) ?? 0) + 1);
+    }
+    const horizontal = new Set(horizontalCounts.keys());
+    const vertical = new Set(verticalCounts.keys());
+    if (horizontal.size <= 1 && vertical.size <= 1) continue;
+
+    const horizontalModes = [...horizontalCounts.entries()].sort((a, b) => b[1] - a[1]).map(([mode]) => mode as 'FIXED' | 'HUG' | 'FILL');
+    const verticalModes = [...verticalCounts.entries()].sort((a, b) => b[1] - a[1]).map(([mode]) => mode as 'FIXED' | 'HUG' | 'FILL');
+    const targetHorizontal = horizontalModes[0];
+    const targetVertical = verticalModes[0];
+    const alternativeHorizontal = horizontalModes.find((mode) => mode !== targetHorizontal) ?? targetHorizontal;
+    const alternativeVertical = verticalModes.find((mode) => mode !== targetVertical) ?? targetVertical;
+    const layoutOptions = [
+      {
+        label: `Align all to ${targetHorizontal} / ${targetVertical}`,
+        targetHorizontal,
+        targetVertical,
+      },
+      ...(alternativeHorizontal !== targetHorizontal || alternativeVertical !== targetVertical
+        ? [{
+            label: `Align all to ${alternativeHorizontal} / ${alternativeVertical}`,
+            targetHorizontal: alternativeHorizontal,
+            targetVertical: alternativeVertical,
+          }]
+        : []),
+    ];
+    issues.push({
+      id: `layout-sizing-${parent.id}`,
+      category: 'layout',
+      severity: 'low',
+      title: `Auto Layout sizing inconsistency: ${parent.name}`,
+      description: `${children.length} child layers use mixed sizing modes${horizontal.size > 1 ? ` horizontally (${[...horizontal].join(', ')})` : ''}${vertical.size > 1 ? ` vertically (${[...vertical].join(', ')})` : ''}. The suggested fix uses the most common mode in each direction: ${targetHorizontal} horizontally and ${targetVertical} vertically.`,
+      nodeIds: children.map((child) => child.id),
+      layoutOptions,
+      fix: {
+        type: 'layout',
+        nodeIds: children.map((child) => child.id),
+        targetHorizontal,
+        targetVertical,
+      },
+    });
+  }
+  return issues;
+}
+function calculateChaosScore(issues: ScanIssue[], nodeCount: number): { score: number; breakdown: Record<string, number> } {
+  const weights = { high: 3, medium: 2, low: 1 } as const;
+  const breakdown: Record<string, number> = {};
+  let weightedIssues = 0;
+  for (const issue of issues) {
+    weightedIssues += weights[issue.severity];
+    breakdown[issue.category] = (breakdown[issue.category] ?? 0) + 1;
+  }
+  const score = Math.min(100, Math.round((weightedIssues / Math.max(1, nodeCount)) * 500));
+  return { score, breakdown };
+}
+async function scan(options: ScanOptions): Promise<{ issues: ScanIssue[]; nodeCount: number; auditNodeCount?: number; variableCoverage?: VariableCoverage; chaosScore: number; chaosBreakdown: Record<string, number> }> {
+  reportScanProgress('Collecting layers…');
+  const nodes = await collectNodes(getNodesToScan(options.scope));
+  const nodeIndex = buildNodeIndex(nodes);
+  const issues: ScanIssue[] = [];
+  let auditNodes = nodes;
+  if (options.categories.includes('styles') || options.categories.includes('variables')) {
+    reportScanProgress('Loading all pages for token audit…');
+    auditNodes = await getFullDocumentNodes();
+  }
   await yieldDuringScan();
 
   if (options.categories.includes('naming')) {
     reportScanProgress('Checking layer names…');
-    issues.push(...scanNaming(nodes));
+    issues.push(...await scanNaming(nodes));
     await yieldDuringScan();
   }
 
   if (options.categories.includes('dimensions')) {
     reportScanProgress('Checking dimensions…');
-    issues.push(...scanDimensions(nodes));
+    issues.push(...await scanDimensions(nodeIndex.sized));
     await yieldDuringScan();
   }
 
   if (options.categories.includes('typography')) {
     reportScanProgress('Checking typography…');
-    issues.push(...scanTypography(nodes));
+    issues.push(...scanTypography(nodeIndex.text));
     await yieldDuringScan();
   }
   if (options.categories.includes('spacing')) {
     reportScanProgress('Checking spacing…');
-    issues.push(...scanSpacing(nodes));
+    issues.push(...scanSpacing(nodeIndex.autoLayout));
     await yieldDuringScan();
   }
   if (options.categories.includes('radius')) {
     reportScanProgress('Checking radius…');
-    issues.push(...scanRadii(nodes));
+    issues.push(...scanRadii(nodeIndex.rounded));
     await yieldDuringScan();
   }
   if (options.categories.includes('buttons')) {
     reportScanProgress('Checking buttons…');
-    issues.push(...scanButtons(nodes));
+    issues.push(...scanButtons(nodeIndex.sized));
     await yieldDuringScan();
   }
   if (options.categories.includes('components')) {
     reportScanProgress('Checking components…');
-    issues.push(...await scanComponents(nodes));
+    issues.push(...await scanComponents(nodeIndex.components, nodeIndex.instances));
+    await yieldDuringScan();
+  }
+  if (options.categories.includes('layout')) {
+    reportScanProgress('Checking Auto Layout…');
+    issues.push(...await scanLayout(nodeIndex.autoLayout));
+    await yieldDuringScan();
+  }
+  if (options.categories.includes('structure')) {
+    reportScanProgress('Checking structure…');
+    issues.push(...scanStructure(nodes));
     await yieldDuringScan();
   }
   if (options.categories.includes('accessibility')) {
     reportScanProgress('Checking accessibility…');
-    issues.push(...scanAccessibility(nodes));
+    issues.push(...await scanAccessibility(nodeIndex.text));
     await yieldDuringScan();
   }
   if (options.categories.includes('colors')) {
     reportScanProgress('Checking colors…');
-    issues.push(...scanColors(nodes));
+    issues.push(...scanColors(nodeIndex.paintable));
     await yieldDuringScan();
   }
   if (options.categories.includes('styles')) {
     reportScanProgress('Checking shared styles…');
-    issues.push(...await scanStyles(nodes));
+    issues.push(...await scanStyles(auditNodes));
     await yieldDuringScan();
   }
   if (options.categories.includes('variables')) {
     reportScanProgress('Checking variables…');
-    issues.push(...await scanVariables(nodes));
+    issues.push(...await scanVariables(auditNodes));
     await yieldDuringScan();
   }
   reportScanProgress('Preparing results…');
-  const variableCoverage = options.categories.includes('variables') ? await getVariableCoverage(nodes) : undefined;
-  return { issues, nodeCount: nodes.length, variableCoverage };
+  const variableCoverage = options.categories.includes('variables') ? await getVariableCoverage(auditNodes) : undefined;
+  const chaos = calculateChaosScore(issues, nodes.length);
+  return { issues, nodeCount: nodes.length, auditNodeCount: auditNodes.length, variableCoverage, chaosScore: chaos.score, chaosBreakdown: chaos.breakdown };
 }
 
 async function getSceneNode(nodeId: string): Promise<SceneNode | null> {
@@ -1184,14 +1417,21 @@ async function getSceneNode(nodeId: string): Promise<SceneNode | null> {
   return node && node.type !== 'DOCUMENT' && node.type !== 'PAGE' ? node as SceneNode : null;
 }
 
-async function selectNodes(nodeIds: string[]): Promise<void> {
+function isOnCurrentPage(node: SceneNode): boolean {
+  let parent = node.parent;
+  while (parent && parent.type !== 'PAGE') parent = parent.parent;
+  return parent === figma.currentPage;
+}
+
+async function selectNodes(nodeIds: string[]): Promise<number> {
   const nodes: SceneNode[] = [];
   for (const nodeId of nodeIds) {
     const node = await getSceneNode(nodeId);
-    if (node) nodes.push(node);
+    if (node && isOnCurrentPage(node)) nodes.push(node);
   }
   figma.currentPage.selection = nodes;
   if (nodes.length > 0) figma.viewport.scrollAndZoomIntoView(nodes);
+  return nodes.length;
 }
 
 async function applyColorFix(fix: Extract<FixAction, { type: 'color' }>): Promise<number> {
@@ -1225,6 +1465,24 @@ async function applyColorFix(fix: Extract<FixAction, { type: 'color' }>): Promis
   return changed;
 }
 
+async function applyAccessibilityFix(fix: Extract<FixAction, { type: 'accessibility' }>): Promise<number> {
+  let changed = 0;
+  for (const nodeId of fix.nodeIds) {
+    const node = await getSceneNode(nodeId);
+    if (!node || node.type !== 'TEXT' || !Array.isArray(node.fills) || !('setFillsAsync' in node)) continue;
+    let changedPaint = false;
+    const fills = node.fills.map((paint) => {
+      if (paint.type !== 'SOLID' || paint.visible === false || !colorsMatch(paint.color, fix.sourceColor, 0.04)) return paint;
+      changedPaint = true;
+      return { ...paint, color: fix.targetColor };
+    });
+    if (changedPaint) {
+      await node.setFillsAsync(fills);
+      changed += 1;
+    }
+  }
+  return changed;
+}
 async function applyTypographyFix(fix: Extract<FixAction, { type: 'typography' }>): Promise<number> {
   let changed = 0;
   for (const nodeId of fix.nodeIds) {
@@ -1298,7 +1556,7 @@ async function applyButtonFix(fix: Extract<FixAction, { type: 'button' }>): Prom
   for (const nodeId of fix.nodeIds) {
     const node = await getSceneNode(nodeId);
     if (!node || !('width' in node) || !('height' in node) || !('resize' in node)) continue;
-    if (Math.abs(node.height - fix.sourceHeight) < 0.001) {
+    if (Math.abs(node.height - fix.sourceHeight) <= 0.1) {
       const resizable = node as SceneNode & { resize: (width: number, height: number) => void };
       resizable.resize(node.width, fix.targetHeight);
       changed += 1;
@@ -1394,6 +1652,25 @@ async function applyDimensionsFix(fix: Extract<FixAction, { type: 'dimensions' }
     const resizable = node as SceneNode & { resize: (width: number, height: number) => void };
     resizable.resize(fix.targetWidth, fix.targetHeight);
     changed += 1;
+  }
+  return changed;
+}
+
+async function applyLayoutFix(fix: Extract<FixAction, { type: 'layout' }>): Promise<number> {
+  let changed = 0;
+  for (const nodeId of fix.nodeIds) {
+    const node = await getSceneNode(nodeId);
+    if (!node || !('layoutSizingHorizontal' in node) || !('layoutSizingVertical' in node)) continue;
+    let didChange = false;
+    if (node.layoutSizingHorizontal !== fix.targetHorizontal) {
+      node.layoutSizingHorizontal = fix.targetHorizontal;
+      didChange = true;
+    }
+    if (node.layoutSizingVertical !== fix.targetVertical) {
+      node.layoutSizingVertical = fix.targetVertical;
+      didChange = true;
+    }
+    if (didChange) changed += 1;
   }
   return changed;
 }
@@ -1498,8 +1775,8 @@ figma.ui.onmessage = async (msg: {
   }
 
   if (msg.type === 'select-nodes' && msg.nodeIds) {
-    await selectNodes(msg.nodeIds);
-    figma.ui.postMessage({ type: 'selection-applied', issueId: msg.selectionIssueId, count: msg.nodeIds.length });
+    const count = await selectNodes(msg.nodeIds);
+    figma.ui.postMessage({ type: 'selection-applied', issueId: msg.selectionIssueId, count });
     return;
   }
 
@@ -1518,8 +1795,10 @@ figma.ui.onmessage = async (msg: {
 
   if (msg.type === 'apply-fix' && msg.fix && msg.issueId) {
     try {
-      const changed = msg.fix.type === 'color'
-        ? await applyColorFix(msg.fix)
+      const changed = msg.fix.type === 'accessibility'
+        ? await applyAccessibilityFix(msg.fix)
+        : msg.fix.type === 'color'
+          ? await applyColorFix(msg.fix)
         : msg.fix.type === 'typography'
           ? await applyTypographyFix(msg.fix)
           : msg.fix.type === 'spacing'
@@ -1534,6 +1813,8 @@ figma.ui.onmessage = async (msg: {
                   ? await applyNamingFix(msg.fix)
                     : msg.fix.type === 'dimensions'
                       ? await applyDimensionsFix(msg.fix)
+                      : msg.fix.type === 'layout'
+                        ? await applyLayoutFix(msg.fix)
                       : msg.fix.type === 'style'
                         ? await applyStyleFix(msg.fix)
                         : await applyVariableFix(msg.fix);

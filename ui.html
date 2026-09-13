@@ -4,57 +4,111 @@
   <meta charset="UTF-8" />
   <style>
     * { box-sizing: border-box; }
-    body { height: 100vh; overflow: hidden; display: flex; flex-direction: column; margin: 0; padding: 20px; font-family: Inter, Arial, sans-serif; color: var(--figma-color-text); background: var(--figma-color-bg); font-size: 13px; }
+:root {
+  color-scheme: dark;
+  --scanner-bg: #000000;
+  --scanner-panel: #0E0E0E;
+  --scanner-accent: #BDED86;
+  --scanner-border: #242424;
+}
+* { scrollbar-width: thin; scrollbar-color: #3A3A3A #000000; }
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-track { background: #000000; }
+*::-webkit-scrollbar-thumb { background: #3A3A3A; border: 2px solid #000000; border-radius: 999px; }
+*::-webkit-scrollbar-thumb:hover { background: #5A5A5A; }
+    body { position: relative; height: 100vh; overflow: hidden; display: flex; flex-direction: column; margin: 0; padding: 20px; font-family: Inter, Arial, sans-serif; color: var(--figma-color-text); background: #000000; font-size: 13px; }
     #fixed-header { flex: 0 0 auto; }
-    #settings-toggle { display: block; width: 100%; margin-bottom: 8px; background: var(--figma-color-bg-secondary); color: var(--figma-color-text); text-align: left; }
+    #settings-toggle { display: block; width: 100%; margin-bottom: 8px; background: #0E0E0E; color: var(--figma-color-text); text-align: left; }
+    #settings-toggle::after { content: '▾'; float: right; color: #BDED86; font-size: 15px; line-height: 1; }
+    body.scroll-collapsed #settings-toggle::after { content: '▸'; }
     #scan-settings { max-height: 900px; overflow: hidden; opacity: 1; transition: max-height .28s ease, opacity .2s ease, margin .28s ease; }
     body.scroll-collapsed #scan-settings { max-height: 0; margin-top: -8px; opacity: 0; pointer-events: none; }
     h1 { margin: 0 0 6px; font-size: 20px; line-height: 1.2; }
     .subtitle { margin-bottom: 20px; color: var(--figma-color-text-secondary); }
     .section { margin-bottom: 20px; }
     .section-title { margin-bottom: 9px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--figma-color-text-secondary); }
+    .preset-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .preset-row label { margin: 0; color: var(--figma-color-text-secondary); font-size: 12px; }
+    #scan-preset { flex: 1; min-width: 0; padding: 7px 8px; border: 0; border-radius: 6px; background: #0E0E0E; color: var(--figma-color-text); font: inherit; }
     label { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; cursor: pointer; }
-    input { accent-color: #18a0fb; }
+    input { accent-color: #BDED86; }
     .scope { display: flex; gap: 16px; }
     .scope label { margin-bottom: 0; }
     .categories { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; }
     .buttons { display: flex; gap: 8px; margin-top: 22px; }
     button { border: 0; border-radius: 6px; padding: 9px 13px; font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
-    #scan { flex: 1; background: #18a0fb; color: white; }
-    #close { background: var(--figma-color-bg-secondary); color: var(--figma-color-text); }
+    #scan { flex: 1; background: #BDED86; color: #000000; }
+    #close { background: #0E0E0E; color: var(--figma-color-text); }
     button:disabled { opacity: .6; cursor: default; }
     #scan-progress { display: none; align-items: center; gap: 8px; margin-top: 12px; color: var(--figma-color-text-secondary); font-size: 12px; }
     #scan-progress.visible { display: flex; }
-    .loading-spinner { width: 14px; height: 14px; border: 2px solid var(--figma-color-border); border-top-color: #18a0fb; border-radius: 50%; animation: scan-spin .8s linear infinite; }
+#scan-loader { position: absolute; left: 20px; right: 20px; bottom: 20px; height: 132px; display: flex; align-items: center; justify-content: center; background: #000000; opacity: 1; transform: scale(1); transition: opacity .38s ease, transform .38s ease; z-index: 4; }
+    #scan-loader.is-hidden { display: none; }
+    #scan-loader.is-fading { opacity: 0; transform: scale(.94); pointer-events: none; }
+    .loader-art { position: relative; width: 112px; height: 116px; contain: layout paint; }
+    .loader-rotor { position: absolute; left: 50%; top: 50%; display: block; transform-origin: center; will-change: transform; backface-visibility: hidden; contain: paint; }
+    .loader-rotor svg { display: block; width: 100%; height: 100%; user-select: none; pointer-events: none; }
+    .loader-flower-rotor { width: 104px; height: 108px; margin: -54px 0 0 -52px; }
+    .loader-face-rotor { width: 62px; height: 65px; margin: -32px 0 0 -31px; }
+    #scan-loader.is-scanning .loader-flower-rotor { animation: loader-spin-left 1600ms ease-in-out infinite; }
+    #scan-loader.is-scanning .loader-face-rotor { animation: loader-spin-right 1600ms ease-in-out infinite; }
+    @keyframes loader-spin-left { from { transform: rotate(0deg); } to { transform: rotate(-360deg); } }
+    @keyframes loader-spin-right { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .loading-spinner { width: 14px; height: 14px; border: 2px solid var(--figma-color-border); border-top-color: #BDED86; border-radius: 50%; animation: scan-spin .8s linear infinite; }
     @keyframes scan-spin { to { transform: rotate(360deg); } }
     #results { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin-top: 24px; padding-bottom: 12px; }
-    .summary { position: sticky; top: 0; z-index: 5; padding: 8px 0; margin-bottom: 4px; font-size: 12px; color: var(--figma-color-text-secondary); background: var(--figma-color-bg); }
-    .issue { padding: 13px; margin-bottom: 8px; border: 1px solid var(--figma-color-border); border-radius: 8px; background: var(--figma-color-bg-secondary); }
+    .summary { position: sticky; top: 0; z-index: 5; padding: 8px 0; margin-bottom: 4px; font-size: 12px; color: var(--figma-color-text-secondary); background: #000000; }
+    .issue { padding: 13px; margin-bottom: 8px; border: 1px solid var(--figma-color-border); border-radius: 8px; background: #0E0E0E; }
     .issue-title { font-weight: 600; margin-bottom: 5px; }
     .issue-description { line-height: 1.45; color: var(--figma-color-text-secondary); margin-bottom: 11px; }
     .issue-actions { display: flex; flex-wrap: wrap; gap: 6px; }
     .custom-spacing { display: flex; align-items: center; gap: 6px; margin: 8px 0 10px; color: var(--figma-color-text-secondary); font-size: 12px; }
-    .custom-spacing input { width: 68px; padding: 5px 6px; border: 1px solid var(--figma-color-border); border-radius: 5px; color: var(--figma-color-text); background: var(--figma-color-bg); font: inherit; }
+    .custom-spacing input { width: 68px; padding: 5px 6px; border: 1px solid var(--figma-color-border); border-radius: 5px; color: var(--figma-color-text); background: #000000; font: inherit; }
+    .component-preview { margin: 8px 0; padding: 8px; border-radius: 6px; color: var(--figma-color-text-secondary); background: #111111; font-size: 11px; line-height: 1.4; }
     .component-name { width: 150px !important; }
     .naming-value { width: 150px !important; }
     .dimension-value { width: 68px !important; }
-    .accessibility-copy { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 5px 8px; border: 1px solid var(--figma-color-border); border-radius: 5px; color: var(--figma-color-text); background: var(--figma-color-bg); font: inherit; font-size: 11px; }
+    .accessibility-copy { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 5px 8px; border: 1px solid var(--figma-color-border); border-radius: 5px; color: var(--figma-color-text); background: #000000; font: inherit; font-size: 11px; }
     .color-chip { display: inline-block; width: 11px; height: 11px; margin-right: 4px; border: 1px solid var(--figma-color-border); border-radius: 3px; vertical-align: -1px; }
     .accessibility-details { line-height: 1.55; }
-    .result-tabs { position: sticky; top: 32px; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; padding: 6px 0 8px; background: var(--figma-color-bg); }
-    .result-tab { padding: 6px 10px; border: 1px solid var(--figma-color-border); border-radius: 6px; background: var(--figma-color-bg-secondary); color: var(--figma-color-text-secondary); white-space: nowrap; }
-    .result-tab.active { background: #18a0fb; border-color: #18a0fb; color: white; }
+    .result-tabs { position: sticky; top: 32px; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; padding: 6px 0 8px; background: #000000; }
+    .result-tab { padding: 6px 10px; border: 1px solid var(--figma-color-border); border-radius: 6px; background: #0E0E0E; color: var(--figma-color-text-secondary); white-space: nowrap; }
+    .result-tab.active { background: #BDED86; border-color: #BDED86; color: #000000; }
     .issue-group { margin-bottom: 10px; border: 1px solid var(--figma-color-border); border-radius: 8px; overflow: hidden; }
-    .issue-group > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 11px 12px; cursor: pointer; font-weight: 600; background: var(--figma-color-bg-secondary); }
-    .group-heading { display: flex; align-items: center; gap: 7px; }
+    .issue-group > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 11px 12px; cursor: pointer; font-weight: 600; background: #0E0E0E; list-style: none; }
+    .issue-group > summary::-webkit-details-marker { display: none; }
+    .issue-group > summary::before { content: '▾'; flex: 0 0 12px; color: #BDED86; font-size: 13px; }
+    .issue-group:not([open]) > summary::before { content: '▸'; }
+    .group-heading { display: flex; align-items: center; gap: 7px; flex: 1; text-align: left; }
+    .issue-group > summary { text-align: left; }
     .group-count { color: var(--figma-color-text-secondary); font-weight: 400; }
-    .bulk-fix { padding: 5px 8px; background: #18a0fb; color: white; white-space: nowrap; }
+    .bulk-fix { padding: 5px 8px; background: #BDED86; color: #000000; white-space: nowrap; }
     .issue-group .issue { margin: 8px; }
-    .issue button { background: var(--figma-color-bg); color: var(--figma-color-text); border: 1px solid var(--figma-color-border); }
-    .issue button.fix { background: #18a0fb; color: white; border-color: #18a0fb; }
-    .fixed { padding: 10px 12px; margin-bottom: 8px; border-radius: 8px; background: var(--figma-color-bg-secondary); color: var(--figma-color-text-secondary); }
+    .issue button { background: #000000; color: var(--figma-color-text); border: 1px solid var(--figma-color-border); }
+    .issue button.fix { background: #BDED86; color: #000000; border-color: #BDED86; }
+    .fixed { padding: 10px 12px; margin-bottom: 8px; border-radius: 8px; background: #0E0E0E; color: var(--figma-color-text-secondary); }
     .undo-fix { margin-top: 8px; padding: 6px 9px; }
     .empty { padding: 20px; text-align: center; color: var(--figma-color-text-secondary); border: 1px dashed var(--figma-color-border); border-radius: 8px; }
+    .preflight-card { margin: 8px 0 12px; padding: 12px; border: 1px solid var(--figma-color-border); border-radius: 8px; background: #0E0E0E; }
+    .preflight-card.ready { border-color: #1bc47d; }
+    .preflight-card.needs-review { border-color: #f2a900; }
+    .preflight-title { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 5px; font-weight: 600; }
+    .preflight-status { color: var(--figma-color-text-secondary); }
+    .preflight-card.ready .preflight-status { color: #1bc47d; }
+    .preflight-card.needs-review .preflight-status { color: #f2a900; }
+    .preflight-details { line-height: 1.45; color: var(--figma-color-text-secondary); }
+    .summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .summary-copy { flex: 1 1 220px; }
+    .summary-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .copy-report { padding: 6px 9px; background: #0E0E0E; color: var(--figma-color-text); white-space: nowrap; }
+    .copy-report.copied { color: #BDED86; }
+    /* Flat visual treatment: navigation tabs keep their borders; content surfaces do not. */
+    #settings-toggle, #close,
+    .issue, .issue-group, .issue button, .fixed, .empty,
+    .preflight-card, .component-preview, .accessibility-copy,
+    .custom-spacing input, .component-name, .naming-value, .dimension-value {
+      border: 0;
+    }
   </style>
 </head>
 <body>
@@ -73,6 +127,15 @@
   </div>
 
   <div class="section">
+    <div class="preset-row">
+      <label for="scan-preset">Preset</label>
+      <select id="scan-preset">
+        <option value="custom">Custom</option>
+        <option value="preflight">Pre-handoff</option>
+        <option value="accessibility">Accessibility audit</option>
+        <option value="design-system">Design system audit</option>
+      </select>
+    </div>
     <div class="section-title">What should we inspect?</div>
     <div class="categories">
       <label><input id="select-all" type="checkbox" /> Select all</label>
@@ -86,6 +149,8 @@
       <label><input class="category-input" type="checkbox" value="naming" /> Naming</label>
       <label><input class="category-input" type="checkbox" value="styles" /> Styles</label>
       <label><input class="category-input" type="checkbox" value="variables" /> Variables</label>
+      <label><input class="category-input" type="checkbox" value="layout" /> Layout</label>
+      <label><input class="category-input" type="checkbox" value="structure" /> Structure</label>
       <label><input class="category-input" type="checkbox" value="accessibility" /> Accessibility</label>
     </div>
   </div>
@@ -100,6 +165,12 @@
   </div>
   </div>
   </div>
+  <div id="scan-loader" aria-live="polite" aria-label="Ready to scan">
+    <div class="loader-art">
+      <div class="loader-rotor loader-flower-rotor"><svg class="loader-flower" width="191" height="199" viewBox="0 0 191 199" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M75.0536 18.0514C78.0313 -6.01712 112.912 -6.01712 115.89 18.0514L117.535 31.3488L126.68 21.5581C143.233 3.83697 171.453 24.3442 159.718 45.5666L153.235 57.2916L166.387 54.7474C190.192 50.1424 200.971 83.3237 179.006 93.5938L166.87 99.268L179.006 104.942C200.971 115.212 190.192 148.394 166.387 143.789L153.235 141.244L159.718 152.97C171.453 174.192 143.234 194.699 126.681 176.978L117.535 167.187L115.89 180.485C112.912 204.553 78.0313 204.553 75.0536 180.485L73.4085 167.187L64.2631 176.978C47.7102 194.699 19.4908 174.192 31.2257 152.97L37.7091 141.244L24.5569 143.789C0.751363 148.394 -10.0275 115.212 11.9377 104.942L24.0732 99.268L11.9377 93.5939C-10.0275 83.3237 0.751355 50.1424 24.5569 54.7474L37.7091 57.2916L31.2258 45.5666C19.4908 24.3441 47.7103 3.83695 64.2632 21.5581L73.4085 31.3488L75.0536 18.0514Z" fill="#BDED86"/></svg></div>
+      <div class="loader-rotor loader-face-rotor"><svg class="loader-face" width="115" height="121" viewBox="0 0 115 121" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><ellipse cx="57.484" cy="60.0979" rx="54.8762" ry="57.62" transform="rotate(2.65256 57.484 60.0979)" fill="#BDED86"/><path d="M51.1594 53.2455C51.1594 69.1569 48.527 82.0556 45.2798 82.0556C42.0326 82.0556 39.4002 69.1569 39.4002 53.2455C39.4002 37.3342 42.0326 24.4355 45.2798 24.4355C48.527 24.4355 51.1594 37.3342 51.1594 53.2455Z" fill="#010101"/><path d="M74.6859 53.2455C74.6859 69.1569 72.0535 82.0556 68.8063 82.0556C65.5591 82.0556 62.9267 69.1569 62.9267 53.2455C62.9267 37.3342 65.5591 24.4355 68.8063 24.4355C72.0535 24.4355 74.6859 37.3342 74.6859 53.2455Z" fill="#010101"/><path d="M91.893 40.7159C92.8748 40.1891 94.0897 40.5732 94.5276 41.5883C97.1873 47.7535 98.4345 54.4981 98.1563 61.279C97.8503 68.739 95.7085 75.9887 91.9399 82.3209C88.1712 88.6532 82.9042 93.8521 76.6524 97.4108C70.4006 100.969 63.3772 102.767 56.267 102.627C49.1568 102.487 42.2024 100.415 36.0818 96.6134C29.9612 92.8115 24.8832 87.4093 21.3429 80.9334C17.8025 74.4575 15.9207 67.1289 15.8808 59.662C15.8446 52.9024 17.3191 46.2383 20.1738 40.2013C20.6622 39.1685 21.9276 38.8046 22.9003 39.3757C23.8127 39.9114 24.1296 41.0764 23.6717 42.0454C21.0936 47.5039 19.762 53.5283 19.7947 59.6389C19.8308 66.3957 21.5337 73.0274 24.7374 78.8874C27.941 84.7475 32.536 89.636 38.0747 93.0763C43.6132 96.5166 49.9062 98.3914 56.3403 98.5178C62.7743 98.6443 69.1297 97.0181 74.787 93.7978C80.4443 90.5776 85.2104 85.8731 88.6207 80.143C92.0309 74.4129 93.969 67.8528 94.2459 61.1022C94.4965 54.9926 93.3788 48.9156 90.9934 43.3562C90.5749 42.381 90.9506 41.2216 91.893 40.7159Z" fill="#010101"/></svg></div>
+    </div>
+  </div>
   <div id="results"></div>
 
   <script>
@@ -109,14 +180,24 @@
     const scanSettings = document.getElementById('scan-settings');
     const scanProgress = document.getElementById('scan-progress');
     const scanProgressLabel = document.getElementById('scan-progress-label');
+    const scanLoader = document.getElementById('scan-loader');
+    let loaderFadeTimer = null;
     const selectAll = document.getElementById('select-all');
     const categoryInputs = Array.from(document.querySelectorAll('.category-input'));
+    const presetSelect = document.getElementById('scan-preset');
+    const presetCategories = {
+      preflight: ['components', 'dimensions', 'naming', 'layout', 'accessibility'],
+      accessibility: ['colors', 'accessibility'],
+      'design-system': ['typography', 'colors', 'spacing', 'radius', 'styles', 'variables'],
+    };
     const results = document.getElementById('results');
     let currentResult = null;
     let lastScannedCategories = [];
     let lastScannedScope = 'page';
     let scanInProgress = false;
     let ignoredIssueIds = new Set();
+    const resolvedIssueIds = new Set();
+    let lastFixedIssueId = null;
     try {
       ignoredIssueIds = new Set(JSON.parse(localStorage.getItem('design-debt-ignored-issues') || '[]'));
     } catch {
@@ -144,28 +225,54 @@
         .replaceAll("'", '&#039;');
     }
 
+    function getSelectedCategories() {
+      return categoryInputs.filter((input) => input.checked).map((input) => input.value);
+    }
+
     function syncCategoryControls() {
+      const selectedCategories = getSelectedCategories().sort().join(',');
+      const matchingPreset = Object.entries(presetCategories).find(([, categories]) => categories.slice().sort().join(',') === selectedCategories);
+      presetSelect.value = matchingPreset ? matchingPreset[0] : 'custom';
       const selectedCount = categoryInputs.filter((input) => input.checked).length;
-      scanButton.disabled = selectedCount === 0;
       selectAll.checked = selectedCount === categoryInputs.length;
       selectAll.indeterminate = selectedCount > 0 && selectedCount < categoryInputs.length;
+      scanButton.disabled = scanInProgress || selectedCount === 0;
     }
 
     function setScanInProgress(active) {
       scanInProgress = active;
       scanButton.textContent = active ? 'Scanning...' : 'Scan design';
-      scanButton.disabled = active || categoryInputs.every((input) => !input.checked);
+      syncCategoryControls();
       closeButton.textContent = active ? 'Cancel scan' : 'Close';
       closeButton.disabled = false;
       scanProgress.classList.toggle('visible', active);
       if (active) scanProgressLabel.textContent = 'Scanning your file… this may take a moment.';
     }
 
-    function selectAllCategories() {
+    function setLoaderState(state) {
+      if (loaderFadeTimer) window.clearTimeout(loaderFadeTimer);
+      scanLoader.classList.remove('is-scanning', 'is-fading', 'is-hidden');
+      if (state === 'scanning') {
+        scanLoader.classList.add('is-scanning');
+        scanLoader.setAttribute('aria-label', 'Scanning');
+      } else if (state === 'fading') {
+        scanLoader.setAttribute('aria-label', 'Scan complete');
+        scanLoader.classList.add('is-fading');
+        loaderFadeTimer = window.setTimeout(() => scanLoader.classList.add('is-hidden'), 400);
+      } else {
+        scanLoader.setAttribute('aria-label', 'Ready to scan');
+      }
+    }    function selectAllCategories() {
       categoryInputs.forEach((input) => { input.checked = selectAll.checked; });
       syncCategoryControls();
     }
 
+    presetSelect.addEventListener('change', () => {
+      const categories = presetCategories[presetSelect.value];
+      if (!categories) return;
+      categoryInputs.forEach((input) => { input.checked = categories.includes(input.value); });
+      syncCategoryControls();
+    });
     selectAll.addEventListener('change', selectAllCategories);
     selectAll.addEventListener('click', () => {
       window.setTimeout(selectAllCategories, 0);
@@ -173,19 +280,24 @@
 
     categoryInputs.forEach((input) => {
       input.addEventListener('change', syncCategoryControls);
+      input.addEventListener('input', syncCategoryControls);
       input.addEventListener('click', () => {
         window.setTimeout(syncCategoryControls, 0);
       });
+    });
+    document.addEventListener('input', (event) => {
+      if (event.target instanceof HTMLInputElement && event.target.classList.contains('category-input')) syncCategoryControls();
     });
     syncCategoryControls();
 
     scanButton.onclick = () => {
       const scope = document.querySelector('input[name="scope"]:checked').value;
-      const categories = categoryInputs.filter((input) => input.checked).map((input) => input.value);
+      const categories = getSelectedCategories();
       if (categories.length === 0) {
         results.innerHTML = '<div class="empty">Select at least one thing to scan.</div>';
         return;
       }
+      setLoaderState('scanning');
       setScanInProgress(true);
       lastScannedCategories = categories;
       lastScannedScope = scope;
@@ -206,6 +318,17 @@
       document.body.classList.toggle('scroll-collapsed', !isCollapsed);
       settingsToggle.textContent = isCollapsed ? 'Collapse scan settings' : 'Edit scan settings';
     };
+    results.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const reviewButton = target.closest('.preflight-review');
+      if (!reviewButton || reviewButton.disabled) return;
+      const card = reviewButton.closest('.preflight-card');
+      const category = (card?.dataset.blockerCategories || '').split(',').filter(Boolean)[0];
+      const tab = category ? results.querySelector(`.result-tab[data-result-category="${category}"]`) : results.querySelector('.result-tab[data-result-category="all"]');
+      if (tab instanceof HTMLElement) tab.click();
+      results.querySelector('.result-tabs')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
     results.addEventListener('scroll', () => {
       if (results.scrollTop > 24) {
         document.body.classList.add('scroll-collapsed');
@@ -216,6 +339,123 @@
       }
     });
 
+    function updatePreflightCard() {
+      const card = results.querySelector('.preflight-card');
+      if (!card || !currentResult) return;
+      const issues = currentResult.issues || [];
+      const activeIssues = issues.filter((issue) => !ignoredIssueIds.has(issue.id) && !resolvedIssueIds.has(issue.id));
+      const summary = results.querySelector('.summary');
+      if (summary) {
+        const count = summary.querySelector('strong');
+        if (count) count.textContent = String(activeIssues.length);
+      }
+      const highCount = activeIssues.filter((issue) => issue.severity === 'high').length;
+      const mediumCount = activeIssues.filter((issue) => issue.severity === 'medium').length;
+      const blockerIssues = activeIssues.filter((issue) => issue.severity === 'high' || issue.severity === 'medium' || issue.id === 'detached-component-instances');
+      const blockerCategories = [...new Set(blockerIssues.map((issue) => issue.category))];
+      const blockerCategoryLabel = blockerCategories.length > 0 ? ` Review: ${blockerCategories.map((category) => category[0].toUpperCase() + category.slice(1)).join(', ')}.` : '';
+      const detachedCount = activeIssues.filter((issue) => issue.id === 'detached-component-instances').length;
+      const ready = highCount === 0 && mediumCount === 0 && detachedCount === 0;
+      card.classList.toggle('ready', ready);
+      card.classList.toggle('needs-review', !ready);
+      const status = card.querySelector('.preflight-status');
+      const details = card.querySelector('.preflight-details');
+      if (status) status.textContent = ready ? 'Ready to hand off' : 'Needs cleanup before handoff';
+      if (details) details.innerHTML = ready
+        ? `No high-priority, medium-priority, or detached-instance blockers remain in the active results. Chaos Score: <strong>${currentResult.chaosScore ?? 0}/100</strong>.`
+        : `${highCount + mediumCount + detachedCount} blocker${highCount + mediumCount + detachedCount === 1 ? '' : 's'} need attention${highCount > 0 ? ` · ${highCount} high priority` : ''}${mediumCount > 0 ? ` · ${mediumCount} medium priority` : ''}${detachedCount > 0 ? ` · ${detachedCount} detached-instance finding` : ''}. Chaos Score: <strong>${currentResult.chaosScore ?? 0}/100</strong>.`;
+      card.dataset.blockerCategories = blockerCategories.join(',');
+      if (details) details.innerHTML = ready
+        ? `No high-priority, medium-priority, or detached-instance blockers remain in the active results. Chaos Score: <strong>${currentResult.chaosScore ?? 0}/100</strong>.`
+        : `${highCount + mediumCount + detachedCount} blocker${highCount + mediumCount + detachedCount === 1 ? '' : 's'} need attention${highCount > 0 ? ` · ${highCount} high priority` : ''}${mediumCount > 0 ? ` · ${mediumCount} medium priority` : ''}${detachedCount > 0 ? ` · ${detachedCount} detached-instance finding` : ''}.${blockerCategoryLabel} Chaos Score: <strong>${currentResult.chaosScore ?? 0}/100</strong>.`;
+      const reviewButton = card.querySelector('.preflight-review');
+      if (reviewButton) {
+        reviewButton.disabled = activeIssues.length === 0;
+        reviewButton.textContent = activeIssues.length === 0
+          ? 'No active issues'
+          : ready ? 'Review active results' : 'Review blockers';
+      }
+    }
+    function buildAuditReport() {
+      if (!currentResult) return '';
+      const issues = currentResult.issues || [];
+      const activeIssues = issues.filter((issue) => !ignoredIssueIds.has(issue.id) && !resolvedIssueIds.has(issue.id));
+      const ignoredIssues = issues.filter((issue) => ignoredIssueIds.has(issue.id));
+      const fixedIssues = issues.filter((issue) => resolvedIssueIds.has(issue.id));
+      const categoryCounts = new Map();
+      for (const issue of activeIssues) categoryCounts.set(issue.category, (categoryCounts.get(issue.category) || 0) + 1);
+      const categoryLines = [...categoryCounts.entries()].sort((a, b) => b[1] - a[1]).map(([category, count]) => `- ${category}: ${count}`).join('\n');
+      const highCount = activeIssues.filter((issue) => issue.severity === 'high').length;
+      const mediumCount = activeIssues.filter((issue) => issue.severity === 'medium').length;
+      const detachedCount = activeIssues.filter((issue) => issue.id === 'detached-component-instances').length;
+      const ready = highCount === 0 && mediumCount === 0 && detachedCount === 0;
+      const inspected = currentResult.auditNodeCount || currentResult.nodeCount || 0;
+      const variableLine = currentResult.variableCoverage
+        ? `\nVariables: ${currentResult.variableCoverage.percentage}% bound (${currentResult.variableCoverage.boundValues}/${currentResult.variableCoverage.tokenizableValues})`
+        : '';
+      const issueLines = activeIssues.slice(0, 100).map((issue) => `- [${issue.severity}] ${issue.category}: ${issue.title}`).join('\n');
+      const truncatedLine = activeIssues.length > 100 ? `\n...and ${activeIssues.length - 100} more active issues.` : '';
+      return [
+        'Design Debt Scanner audit report',
+        `Generated: ${new Date().toLocaleString()}`,
+        `Scope: ${lastScannedScope === 'selection' ? 'Selection' : 'Current page'}`,
+        `Layers inspected: ${inspected}`,
+        `Chaos Score: ${currentResult.chaosScore ?? 0}/100`,
+        `Handoff status: ${ready ? 'Ready to hand off' : 'Needs cleanup before handoff'}`,
+        `Active issues: ${activeIssues.length}`,
+        `Ignored issues: ${ignoredIssues.length}`,
+        `Fixed issues: ${fixedIssues.length}${variableLine}`,
+        '',
+        'Issues by category:',
+        categoryLines || '- None',
+        '',
+        'Active issue details:',
+        issueLines || '- None',
+        truncatedLine,
+      ].join('\n');
+    }
+
+    function downloadAuditReport(button) {
+      const report = buildAuditReport();
+      if (!report) return;
+      const blob = new Blob([report], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `design-debt-audit-${new Date().toISOString().slice(0, 10)}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      button.textContent = 'Downloaded ✓';
+      button.classList.add('copied');
+      window.setTimeout(() => {
+        button.textContent = 'Download audit report';
+        button.classList.remove('copied');
+      }, 1800);
+    }
+    async function copyAuditReport(button) {
+      const report = buildAuditReport();
+      if (!report) return;
+      try {
+        await navigator.clipboard.writeText(report);
+      } catch {
+        const fallback = document.createElement('textarea');
+        fallback.value = report;
+        fallback.style.position = 'fixed';
+        fallback.style.opacity = '0';
+        document.body.appendChild(fallback);
+        fallback.select();
+        document.execCommand('copy');
+        fallback.remove();
+      }
+      button.textContent = 'Copied ✓';
+      button.classList.add('copied');
+      window.setTimeout(() => {
+        button.textContent = 'Copy audit report';
+        button.classList.remove('copied');
+      }, 1800);
+    }
     function renderResults(result) {
       currentResult = result;
       document.body.classList.add('scroll-collapsed');
@@ -223,15 +463,30 @@
       const issues = result.issues || [];
       const activeIssues = issues.filter((issue) => !ignoredIssueIds.has(issue.id));
       const ignoredIssues = issues.filter((issue) => ignoredIssueIds.has(issue.id));
-      let html = `<div class="summary"><strong>${activeIssues.length}</strong> active issue${activeIssues.length === 1 ? '' : 's'} found${ignoredIssues.length ? ` · ${ignoredIssues.length} ignored` : ''} · ${result.nodeCount} layer${result.nodeCount === 1 ? '' : 's'} inspected${result.variableCoverage ? ` · Variables: ${result.variableCoverage.percentage}% bound (${result.variableCoverage.boundValues}/${result.variableCoverage.tokenizableValues})` : ''}</div>`;
+      let html = `<div class="summary"><span class="summary-copy"><strong>${activeIssues.length}</strong> active issue${activeIssues.length === 1 ? '' : 's'} found${ignoredIssues.length ? ` · ${ignoredIssues.length} ignored` : ''} · ${result.auditNodeCount || result.nodeCount} layer${(result.auditNodeCount || result.nodeCount) === 1 ? '' : 's'} inspected · Chaos Score: <strong>${result.chaosScore ?? 0}/100</strong>${result.variableCoverage ? ` · Variables: ${result.variableCoverage.percentage}% bound (${result.variableCoverage.boundValues}/${result.variableCoverage.tokenizableValues})` : ''}</span><span class="summary-actions"><button class="copy-report">Copy audit report</button><button class="download-report">Download audit report</button></span></div>`;
+      const highCount = activeIssues.filter((issue) => issue.severity === 'high').length;
+      const mediumCount = activeIssues.filter((issue) => issue.severity === 'medium').length;
+      const blockerIssues = activeIssues.filter((issue) => issue.severity === 'high' || issue.severity === 'medium' || issue.id === 'detached-component-instances');
+      const blockerCategories = [...new Set(blockerIssues.map((issue) => issue.category))];
+      const blockerCategoryLabel = blockerCategories.length > 0 ? ` Review: ${blockerCategories.map((category) => category[0].toUpperCase() + category.slice(1)).join(', ')}.` : '';
+      const detachedCount = activeIssues.filter((issue) => issue.id === 'detached-component-instances').length;
+      const preflightReady = highCount === 0 && mediumCount === 0 && detachedCount === 0;
+      const preflightClass = preflightReady ? 'ready' : 'needs-review';
+      const preflightStatus = preflightReady ? 'Ready to hand off' : 'Needs cleanup before handoff';
+      const preflightDetails = preflightReady
+        ? 'No high-priority, medium-priority, or detached-instance blockers were found in the active results.'
+        : `${highCount + mediumCount + detachedCount} blocker${highCount + mediumCount + detachedCount === 1 ? '' : 's'} need attention${highCount > 0 ? ` · ${highCount} high priority` : ''}${mediumCount > 0 ? ` · ${mediumCount} medium priority` : ''}${detachedCount > 0 ? ` · ${detachedCount} detached-instance finding` : ''}.${blockerCategoryLabel}`;
+      html += `<div class="preflight-card ${preflightClass}" data-blocker-categories="${escapeHtml(blockerCategories.join(','))}"><div class="preflight-title"><span>Handoff / pre-flight check</span><span class="preflight-status">${preflightStatus}</span></div><div class="preflight-details">${preflightDetails} Chaos Score: <strong>${result.chaosScore ?? 0}/100</strong>.</div><button class="preflight-review" ${activeIssues.length === 0 ? 'disabled' : ''}>${activeIssues.length === 0 ? 'No active issues' : preflightReady ? 'Review active results' : 'Review blockers'}</button></div>`;
       if (issues.length === 0) html += '<div class="empty">No issues found by the current checks.</div>';
 
       for (const issue of issues) {
         const fix = issue.fix;
         const isIgnored = ignoredIssueIds.has(issue.id);
-        const canIgnore = ['dimensions', 'naming', 'radius', 'colors', 'styles', 'variables'].includes(issue.category);
-        const fixLabel = fix && fix.type === 'typography'
-          ? `Fix ${fix.nodeIds.length} → ${fix.targetSize}px`
+        const canIgnore = ['dimensions', 'naming', 'radius', 'colors', 'styles', 'variables', 'layout', 'structure'].includes(issue.category);
+        const fixLabel = fix && fix.type === 'accessibility'
+          ? `Apply ${fix.targetHex}`
+          : fix && fix.type === 'typography'
+            ? `Fix ${fix.nodeIds.length} → ${fix.targetSize}px`
           : fix && fix.type === 'spacing'
             ? `Fix ${fix.nodeIds.length} → ${fix.targetValue}px`
           : fix && fix.type === 'radius'
@@ -242,6 +497,8 @@
             ? `Rename ${fix.nodeIds.length} layer${fix.nodeIds.length === 1 ? '' : 's'}`
           : fix && fix.type === 'dimensions'
             ? `Resize ${fix.nodeIds.length} → ${fix.targetWidth}×${fix.targetHeight}`
+          : fix && fix.type === 'layout'
+            ? `Align ${fix.nodeIds.length} layer${fix.nodeIds.length === 1 ? '' : 's'} → ${fix.targetHorizontal}/${fix.targetVertical}`
           : fix && fix.type === 'style'
             ? `Apply “${fix.styleName}” to ${fix.nodeIds.length} layer${fix.nodeIds.length === 1 ? '' : 's'}`
           : fix && fix.type === 'variable'
@@ -253,7 +510,7 @@
             : '';
         const accessibilityDetails = issue.accessibilityDetails;
         const issueDescription = accessibilityDetails
-          ? `<div class="accessibility-details"><strong>${escapeHtml(accessibilityDetails.layerType)}</strong> uses text <span class="color-chip" style="background:${escapeHtml(accessibilityDetails.textHex)}"></span><code>${escapeHtml(accessibilityDetails.textHex)}</code> on background <span class="color-chip" style="background:${escapeHtml(accessibilityDetails.backgroundHex)}"></span><code>${escapeHtml(accessibilityDetails.backgroundHex)}</code>: <strong>${accessibilityDetails.ratio}:1</strong> contrast.<br><span>WCAG AA requires at least ${accessibilityDetails.requiredRatio}:1 for ${escapeHtml(accessibilityDetails.textSizeLabel)} text.</span>${accessibilityDetails.suggestedHex ? `<br><span>Suggested text color: <span class="color-chip" style="background:${escapeHtml(accessibilityDetails.suggestedHex)}"></span><code>${escapeHtml(accessibilityDetails.suggestedHex)}</code> (${accessibilityDetails.suggestedRatio}:1 contrast)</span><br><button class="accessibility-copy" data-copy-hex="${escapeHtml(accessibilityDetails.suggestedHex)}">Copy ${escapeHtml(accessibilityDetails.suggestedHex)}</button>` : '<br><span>Choose a significantly darker or lighter text color in Figma’s color picker.</span>'}</div>`
+          ? `<div class="issue-description accessibility-details"><strong>${escapeHtml(accessibilityDetails.layerType)}</strong> uses text <span class="color-chip" style="background:${escapeHtml(accessibilityDetails.textHex)}"></span><code>${escapeHtml(accessibilityDetails.textHex)}</code> on background <span class="color-chip" style="background:${escapeHtml(accessibilityDetails.backgroundHex)}"></span><code>${escapeHtml(accessibilityDetails.backgroundHex)}</code>: <strong>${accessibilityDetails.ratio}:1</strong> contrast.<br><span>WCAG AA requires at least ${accessibilityDetails.requiredRatio}:1 for ${escapeHtml(accessibilityDetails.textSizeLabel)} text.</span>${accessibilityDetails.suggestedHex ? `<br><span>Suggested text color: <span class="color-chip" style="background:${escapeHtml(accessibilityDetails.suggestedHex)}"></span><code>${escapeHtml(accessibilityDetails.suggestedHex)}</code> (${accessibilityDetails.suggestedRatio}:1 contrast)</span><br><button class="accessibility-copy" data-copy-hex="${escapeHtml(accessibilityDetails.suggestedHex)}">Copy ${escapeHtml(accessibilityDetails.suggestedHex)}</button>` : '<br><span>Choose a significantly darker or lighter text color in Figma’s color picker.</span>'}</div>`
           : `<div class="issue-description">${escapeHtml(issue.description)}</div>`;
         html += `<div class="issue" data-issue-id="${escapeHtml(issue.id)}">
           <div class="issue-title">${escapeHtml(issue.title)}</div>
@@ -262,10 +519,11 @@
           ${!isIgnored && fix && fix.type === 'naming' ? `<label class="custom-spacing">Name prefix <input class="custom-name-value naming-value" type="text" value="${escapeHtml(fix.targetName)}" /></label>` : ''}
           ${!isIgnored && fix && fix.type === 'dimensions' ? `<label class="custom-spacing">Custom size <input class="dimension-width dimension-value" type="number" min="1" step="0.1" value="${fix.targetWidth}" /> × <input class="dimension-height dimension-value" type="number" min="1" step="0.1" value="${fix.targetHeight}" /> px</label>` : ''}
           ${!isIgnored && fix && fix.type === 'component' && issue.componentOptions ? `<label class="custom-spacing">Canonical component <select class="canonical-component">${issue.componentOptions.map((option) => `<option value="${escapeHtml(option.id)}" ${option.id === fix.canonicalId ? 'selected' : ''}>${escapeHtml(option.name)}</option>`).join('')}</select></label>` : ''}
-          ${!isIgnored && fix && fix.type === 'component' && issue.componentOptions ? `<label class="custom-spacing">Rename duplicates <input class="custom-target-value component-name" type="text" value="${escapeHtml(issue.componentOptions[0].name)}" /></label>` : ''}
+          ${!isIgnored && fix && fix.type === 'component' && issue.componentOptions ? `<div class="component-preview">Preview: choose the canonical component, then review the separate merge, instance-conversion, or rename action below.</div><label class="custom-spacing">Rename duplicates <input class="custom-target-value component-name" type="text" value="${escapeHtml(issue.componentOptions[0].name)}" /></label>` : ''}
           <div class="issue-actions">
             ${issue.nodeIds.length > 0 ? `<button class="select-issue" data-issue-id="${escapeHtml(issue.id)}" data-node-ids="${escapeHtml(issue.nodeIds.join(','))}">Select affected layers</button>` : ''}
-            ${!isIgnored && fix && (fix.type !== 'component' || fix.instanceIds.length > 0) ? `<button class="fix" data-fix-issue-id="${escapeHtml(issue.id)}">${escapeHtml(fixLabel)}</button>` : ''}
+            ${!isIgnored && fix && fix.type === 'layout' && issue.layoutOptions ? issue.layoutOptions.map((option, index) => `<button class="layout-fix" data-layout-issue-id="${escapeHtml(issue.id)}" data-layout-option-index="${index}">${escapeHtml(option.label)}</button>`).join('') : ''}
+            ${!isIgnored && fix && fix.type !== 'component' && fix.type !== 'layout' ? `<button class="fix" data-fix-issue-id="${escapeHtml(issue.id)}">${escapeHtml(fixLabel)}</button>` : ''}
             ${!isIgnored && fix && fix.type === 'component' ? `<button class="merge-components" data-merge-issue-id="${escapeHtml(issue.id)}">Merge into one component</button>` : ''}
             ${!isIgnored && fix && fix.type === 'component' ? `<button class="merge-instance" data-instance-issue-id="${escapeHtml(issue.id)}">Merge + turn into instance</button>` : ''}
             ${!isIgnored && fix && fix.type === 'component' ? `<button class="rename-components" data-rename-issue-id="${escapeHtml(issue.id)}">Rename duplicates</button>` : ''}
@@ -274,6 +532,10 @@
         </div>`;
       }
       results.innerHTML = html;
+      const copyReportButton = results.querySelector('.copy-report');
+      if (copyReportButton) copyReportButton.onclick = () => copyAuditReport(copyReportButton);
+      const downloadReportButton = results.querySelector('.download-report');
+      if (downloadReportButton) downloadReportButton.onclick = () => downloadAuditReport(downloadReportButton);
 
       const grouped = new Map();
       for (const issue of activeIssues) {
@@ -344,7 +606,7 @@
             tab.classList.add('active');
             const category = tab.dataset.resultCategory;
             groupContainer.querySelectorAll('.issue-group').forEach((group) => {
-              group.style.display = category === 'all' || group.dataset.resultCategory === category ? '' : 'none';
+              group.style.display = category === 'all' ? (group.dataset.resultCategory === 'ignored' ? 'none' : '') : group.dataset.resultCategory === category ? '' : 'none';
             });
           };
         });
@@ -427,8 +689,22 @@
           button.dataset.preFixLabel = button.textContent || 'Fix';
           button.disabled = true;
           const targetValue = fix.type === 'typography' ? `${fix.targetSize}px` : fix.type === 'spacing' || fix.type === 'radius' ? `${fix.targetValue}px` : fix.type === 'button' ? `${fix.targetHeight}px` : fix.type === 'dimensions' ? `${fix.targetWidth}×${fix.targetHeight}` : null;
-          button.textContent = fix.type === 'component' ? 'Relinking...' : fix.type === 'naming' ? 'Renaming...' : fix.type === 'dimensions' ? `Resizing → ${targetValue}...` : fix.type === 'variable' ? 'Binding...' : targetValue !== null ? `Fixing → ${targetValue}...` : 'Fixing...';
+          button.textContent = fix.type === 'component' ? 'Relinking...' : fix.type === 'naming' ? 'Renaming...' : fix.type === 'dimensions' ? `Resizing → ${targetValue}...` : fix.type === 'layout' ? `Aligning → ${fix.targetHorizontal}/${fix.targetVertical}...` : fix.type === 'variable' ? 'Binding...' : targetValue !== null ? `Fixing → ${targetValue}...` : 'Fixing...';
           button.dataset.fixStartedAt = String(Date.now());
+          post({ type: 'apply-fix', issueId: issue.id, fix });
+        };
+      });
+      results.querySelectorAll('.layout-fix').forEach((button) => {
+        button.onclick = () => {
+          const issue = issues.find((candidate) => candidate.id === button.dataset.layoutIssueId);
+          if (!issue || !issue.fix || issue.fix.type !== 'layout' || !issue.layoutOptions) return;
+          const option = issue.layoutOptions[Number(button.dataset.layoutOptionIndex)];
+          if (!option) return;
+          const card = button.closest('.issue');
+          const fix = { ...issue.fix, targetHorizontal: option.targetHorizontal, targetVertical: option.targetVertical };
+          card?.querySelectorAll('.layout-fix').forEach((candidate) => { candidate.disabled = true; });
+          button.classList.add('in-progress');
+          button.textContent = `Aligning → ${option.targetHorizontal}/${option.targetVertical}...`;
           post({ type: 'apply-fix', issueId: issue.id, fix });
         };
       });
@@ -479,26 +755,34 @@
       const message = event.data.pluginMessage;
       if (!message) return;
       if (message.type === 'scan-results') {
+        resolvedIssueIds.clear();
+        lastFixedIssueId = null;
         setScanInProgress(false);
-        renderResults(message.result);
+        setLoaderState('fading');
+        window.setTimeout(() => renderResults(message.result), 320);
       }
       if (message.type === 'scan-failed') {
         setScanInProgress(false);
-        results.innerHTML = `<div class="empty">Could not complete the scan: ${escapeHtml(message.error || 'Unknown error')}</div>`;
+        setLoaderState('fading');
+        window.setTimeout(() => { results.innerHTML = `<div class="empty">Could not complete the scan: ${escapeHtml(message.error || 'Unknown error')}</div>`; }, 320);
       }
       if (message.type === 'scan-progress') {
         scanProgressLabel.textContent = message.label || 'Scanning your file… this may take a moment.';
       }
       if (message.type === 'scan-cancelled') {
         setScanInProgress(false);
-        results.innerHTML = '<div class="empty">Scan cancelled. Your file was not changed.</div>';
+        setLoaderState('fading');
+        window.setTimeout(() => { results.innerHTML = '<div class="empty">Scan cancelled. Your file was not changed.</div>'; }, 320);
       }
       if (message.type === 'selection-applied') {
         const card = Array.from(results.querySelectorAll('[data-issue-id]')).find((candidate) => candidate.dataset.issueId === message.issueId);
         const button = card?.querySelector('.select-issue');
         if (button) {
           button.disabled = false;
-          button.textContent = `Selected ${message.count} layer${message.count === 1 ? '' : 's'} ✓`;
+          button.classList.remove('in-progress');
+          button.textContent = message.count > 0
+            ? `Selected ${message.count} layer${message.count === 1 ? '' : 's'} ✓`
+            : 'No affected layers on current page';
         }
       }
       if (message.type === 'selection-changed') {
@@ -521,9 +805,12 @@
             ? card.querySelector('.merge-instance')
             : message.action === 'rename'
               ? card.querySelector('.rename-components')
+              : message.action === 'layout'
+                ? card.querySelector('.layout-fix.in-progress')
               : card.querySelector('.fix');
         if (button) {
           button.disabled = false;
+          button.classList.remove('in-progress');
           button.textContent = message.action === 'merge'
             ? `Merged ${message.changed} item${message.changed === 1 ? '' : 's'} ✓`
             : message.action === 'instance'
@@ -534,10 +821,17 @@
                   ? `Renamed ${message.changed} layer${message.changed === 1 ? '' : 's'} ✓`
                 : message.action === 'dimensions'
                   ? `Resized ${message.changed} layer${message.changed === 1 ? '' : 's'} ✓`
+                : message.action === 'layout'
+                  ? `Aligned ${message.changed} layer${message.changed === 1 ? '' : 's'} ✓`
                 : message.changed > 0 ? `Fixed ${message.changed} layer${message.changed === 1 ? '' : 's'} ✓` : 'Already up to date';
           button.classList.add('success');
         }
         const description = card.querySelector('.issue-description');
+        if (message.changed > 0) {
+          resolvedIssueIds.add(message.issueId);
+          lastFixedIssueId = message.issueId;
+          updatePreflightCard();
+        }
         if (description && message.changed > 0) {
           results.querySelectorAll('.undo-fix').forEach((undoButton) => undoButton.remove());
           card.querySelectorAll('.fixed').forEach((feedback) => feedback.remove());
@@ -545,7 +839,8 @@
           const rescanButton = card.querySelector('.rescan-results');
           if (rescanButton) {
             rescanButton.onclick = () => {
-              setScanInProgress(true);
+              setLoaderState('scanning');
+      setScanInProgress(true);
               window.setTimeout(() => post({ type: 'scan', options: { scope: lastScannedScope, categories: lastScannedCategories } }), 0);
             };
           }
@@ -576,9 +871,12 @@
             ? card.querySelector('.merge-instance')
             : message.action === 'rename'
               ? card.querySelector('.rename-components')
+              : message.action === 'layout'
+                ? card.querySelector('.layout-fix.in-progress')
               : card.querySelector('.fix');
         if (button) {
           button.disabled = false;
+          button.classList.remove('in-progress');
           button.textContent = 'Try again';
         }
         results.querySelectorAll('.bulk-fix').forEach((bulkButton) => {
@@ -593,14 +891,29 @@
         }
       }
       if (message.type === 'undo-applied') {
+        if (lastFixedIssueId) {
+          resolvedIssueIds.delete(lastFixedIssueId);
+          updatePreflightCard();
+          lastFixedIssueId = null;
+        }
         results.querySelectorAll('.undo-fix').forEach((undoButton) => {
           const card = undoButton.closest('.issue');
-          const actionButton = card?.querySelector('[data-pre-fix-label]');
+          const issue = (currentResult?.issues || []).find((candidate) => candidate.id === card?.dataset.issueId);
           const feedback = undoButton.closest('.fixed');
-          if (actionButton) {
-            actionButton.disabled = false;
-            actionButton.textContent = actionButton.dataset.preFixLabel || 'Fix';
-            actionButton.classList.remove('success');
+          if (issue?.fix?.type === 'layout' && issue.layoutOptions) {
+            card?.querySelectorAll('.layout-fix').forEach((layoutButton) => {
+              const option = issue.layoutOptions[Number(layoutButton.dataset.layoutOptionIndex)];
+              layoutButton.disabled = false;
+              layoutButton.classList.remove('success', 'in-progress');
+              layoutButton.textContent = option?.label || 'Align layers';
+            });
+          } else {
+            const actionButton = card?.querySelector('[data-pre-fix-label]');
+            if (actionButton) {
+              actionButton.disabled = false;
+              actionButton.textContent = actionButton.dataset.preFixLabel || 'Fix';
+              actionButton.classList.remove('success');
+            }
           }
           undoButton.disabled = true;
           undoButton.textContent = 'Undone ✓';
