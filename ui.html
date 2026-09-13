@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    * { box-sizing: border-box; }
+    body { height: 100vh; overflow: hidden; display: flex; flex-direction: column; margin: 0; padding: 20px; font-family: Inter, Arial, sans-serif; color: var(--figma-color-text); background: var(--figma-color-bg); font-size: 13px; }
+    #fixed-header { flex: 0 0 auto; }
+    #settings-toggle { display: block; width: 100%; margin-bottom: 8px; background: var(--figma-color-bg-secondary); color: var(--figma-color-text); text-align: left; }
+    #scan-settings { max-height: 900px; overflow: hidden; opacity: 1; transition: max-height .28s ease, opacity .2s ease, margin .28s ease; }
+    body.scroll-collapsed #scan-settings { max-height: 0; margin-top: -8px; opacity: 0; pointer-events: none; }
+    h1 { margin: 0 0 6px; font-size: 20px; line-height: 1.2; }
+    .subtitle { margin-bottom: 20px; color: var(--figma-color-text-secondary); }
+    .section { margin-bottom: 20px; }
+    .section-title { margin-bottom: 9px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--figma-color-text-secondary); }
+    label { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; cursor: pointer; }
+    input { accent-color: #18a0fb; }
+    .scope { display: flex; gap: 16px; }
+    .scope label { margin-bottom: 0; }
+    .categories { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; }
+    .buttons { display: flex; gap: 8px; margin-top: 22px; }
+    button { border: 0; border-radius: 6px; padding: 9px 13px; font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+    #scan { flex: 1; background: #18a0fb; color: white; }
+    #close { background: var(--figma-color-bg-secondary); color: var(--figma-color-text); }
+    button:disabled { opacity: .6; cursor: default; }
+    #scan-progress { display: none; align-items: center; gap: 8px; margin-top: 12px; color: var(--figma-color-text-secondary); font-size: 12px; }
+    #scan-progress.visible { display: flex; }
+    .loading-spinner { width: 14px; height: 14px; border: 2px solid var(--figma-color-border); border-top-color: #18a0fb; border-radius: 50%; animation: scan-spin .8s linear infinite; }
+    @keyframes scan-spin { to { transform: rotate(360deg); } }
+    #results { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin-top: 24px; padding-bottom: 12px; }
+    .summary { position: sticky; top: 0; z-index: 5; padding: 8px 0; margin-bottom: 4px; font-size: 12px; color: var(--figma-color-text-secondary); background: var(--figma-color-bg); }
+    .issue { padding: 13px; margin-bottom: 8px; border: 1px solid var(--figma-color-border); border-radius: 8px; background: var(--figma-color-bg-secondary); }
+    .issue-title { font-weight: 600; margin-bottom: 5px; }
+    .issue-description { line-height: 1.45; color: var(--figma-color-text-secondary); margin-bottom: 11px; }
+    .issue-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .custom-spacing { display: flex; align-items: center; gap: 6px; margin: 8px 0 10px; color: var(--figma-color-text-secondary); font-size: 12px; }
+    .custom-spacing input { width: 68px; padding: 5px 6px; border: 1px solid var(--figma-color-border); border-radius: 5px; color: var(--figma-color-text); background: var(--figma-color-bg); font: inherit; }
+    .component-name { width: 150px !important; }
+    .naming-value { width: 150px !important; }
+    .dimension-value { width: 68px !important; }
+    .accessibility-copy { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 5px 8px; border: 1px solid var(--figma-color-border); border-radius: 5px; color: var(--figma-color-text); background: var(--figma-color-bg); font: inherit; font-size: 11px; }
+    .color-chip { display: inline-block; width: 11px; height: 11px; margin-right: 4px; border: 1px solid var(--figma-color-border); border-radius: 3px; vertical-align: -1px; }
+    .accessibility-details { line-height: 1.55; }
+    .result-tabs { position: sticky; top: 32px; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; padding: 6px 0 8px; background: var(--figma-color-bg); }
+    .result-tab { padding: 6px 10px; border: 1px solid var(--figma-color-border); border-radius: 6px; background: var(--figma-color-bg-secondary); color: var(--figma-color-text-secondary); white-space: nowrap; }
+    .result-tab.active { background: #18a0fb; border-color: #18a0fb; color: white; }
+    .issue-group { margin-bottom: 10px; border: 1px solid var(--figma-color-border); border-radius: 8px; overflow: hidden; }
+    .issue-group > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 11px 12px; cursor: pointer; font-weight: 600; background: var(--figma-color-bg-secondary); }
+    .group-heading { display: flex; align-items: center; gap: 7px; }
+    .group-count { color: var(--figma-color-text-secondary); font-weight: 400; }
+    .bulk-fix { padding: 5px 8px; background: #18a0fb; color: white; white-space: nowrap; }
+    .issue-group .issue { margin: 8px; }
+    .issue button { background: var(--figma-color-bg); color: var(--figma-color-text); border: 1px solid var(--figma-color-border); }
+    .issue button.fix { background: #18a0fb; color: white; border-color: #18a0fb; }
+    .fixed { padding: 10px 12px; margin-bottom: 8px; border-radius: 8px; background: var(--figma-color-bg-secondary); color: var(--figma-color-text-secondary); }
+    .undo-fix { margin-top: 8px; padding: 6px 9px; }
+    .empty { padding: 20px; text-align: center; color: var(--figma-color-text-secondary); border: 1px dashed var(--figma-color-border); border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <div id="fixed-header">
+  <button id="settings-toggle">Edit scan settings</button>
+  <div id="scan-settings">
+  <h1>Design Debt Scanner</h1>
+  <p class="subtitle">Find inconsistencies hiding in your design.</p>
+
+  <div class="section">
+    <div class="section-title">Scan scope</div>
+    <div class="scope">
+      <label><input type="radio" name="scope" value="page" checked /> Current page</label>
+      <label><input type="radio" name="scope" value="selection" /> Selection</label>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">What should we inspect?</div>
+    <div class="categories">
+      <label><input id="select-all" type="checkbox" /> Select all</label>
+      <label><input class="category-input" type="checkbox" value="typography" /> Typography</label>
+      <label><input class="category-input" type="checkbox" value="colors" /> Colors</label>
+      <label><input class="category-input" type="checkbox" value="spacing" /> Spacing</label>
+      <label><input class="category-input" type="checkbox" value="components" /> Components</label>
+      <label><input class="category-input" type="checkbox" value="buttons" /> Buttons</label>
+      <label><input class="category-input" type="checkbox" value="radius" /> Radius</label>
+      <label><input class="category-input" type="checkbox" value="dimensions" /> Dimensions</label>
+      <label><input class="category-input" type="checkbox" value="naming" /> Naming</label>
+      <label><input class="category-input" type="checkbox" value="styles" /> Styles</label>
+      <label><input class="category-input" type="checkbox" value="variables" /> Variables</label>
+      <label><input class="category-input" type="checkbox" value="accessibility" /> Accessibility</label>
+    </div>
+  </div>
+
+  <div class="buttons">
+    <button id="scan" disabled>Scan design</button>
+    <button id="close">Close</button>
+  </div>
+  <div id="scan-progress" role="status" aria-live="polite">
+    <span class="loading-spinner" aria-hidden="true"></span>
+    <span id="scan-progress-label">Scanning your file… this may take a moment.</span>
+  </div>
+  </div>
+  </div>
+  <div id="results"></div>
+
+  <script>
+    const scanButton = document.getElementById('scan');
+    const closeButton = document.getElementById('close');
+    const settingsToggle = document.getElementById('settings-toggle');
+    const scanSettings = document.getElementById('scan-settings');
+    const scanProgress = document.getElementById('scan-progress');
+    const scanProgressLabel = document.getElementById('scan-progress-label');
+    const selectAll = document.getElementById('select-all');
+    const categoryInputs = Array.from(document.querySelectorAll('.category-input'));
+    const results = document.getElementById('results');
+    let currentResult = null;
+    let lastScannedCategories = [];
+    let scanInProgress = false;
+    let ignoredIssueIds = new Set();
+    try {
+      ignoredIssueIds = new Set(JSON.parse(localStorage.getItem('design-debt-ignored-issues') || '[]'));
+    } catch {
+      ignoredIssueIds = new Set();
+    }
+
+    function saveIgnoredIssues() {
+      try {
+        localStorage.setItem('design-debt-ignored-issues', JSON.stringify([...ignoredIssueIds]));
+      } catch {
+        // Ignore persistence failures; the current session still works.
+      }
+    }
+
+    function post(message) {
+      parent.postMessage({ pluginMessage: message }, '*');
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+
+    function syncCategoryControls() {
+      const selectedCount = categoryInputs.filter((input) => input.checked).length;
+      scanButton.disabled = selectedCount === 0;
+      selectAll.checked = selectedCount === categoryInputs.length;
+      selectAll.indeterminate = selectedCount > 0 && selectedCount < categoryInputs.length;
+    }
+
+    function setScanInProgress(active) {
+      scanInProgress = active;
+      scanButton.textContent = active ? 'Scanning...' : 'Scan design';
+      scanButton.disabled = active || categoryInputs.every((input) => !input.checked);
+      closeButton.textContent = active ? 'Cancel scan' : 'Close';
+      closeButton.disabled = false;
+      scanProgress.classList.toggle('visible', active);
+      if (active) scanProgressLabel.textContent = 'Scanning your file… this may take a moment.';
+    }
+
+    function selectAllCategories() {
+      categoryInputs.forEach((input) => { input.checked = selectAll.checked; });
+      syncCategoryControls();
+    }
+
+    selectAll.addEventListener('change', selectAllCategories);
+    selectAll.addEventListener('click', () => {
+      window.setTimeout(selectAllCategories, 0);
+    });
+
+    categoryInputs.forEach((input) => {
+      input.addEventListener('change', syncCategoryControls);
+      input.addEventListener('click', () => {
+        window.setTimeout(syncCategoryControls, 0);
+      });
+    });
+    syncCategoryControls();
+
+    scanButton.onclick = () => {
+      const scope = document.querySelector('input[name="scope"]:checked').value;
+      const categories = categoryInputs.filter((input) => input.checked).map((input) => input.value);
+      if (categories.length === 0) {
+        results.innerHTML = '<div class="empty">Select at least one thing to scan.</div>';
+        return;
+      }
+      setScanInProgress(true);
+      lastScannedCategories = categories;
+      window.setTimeout(() => post({ type: 'scan', options: { scope, categories } }), 0);
+    };
+
+    closeButton.onclick = () => {
+      if (scanInProgress) {
+        closeButton.disabled = true;
+        closeButton.textContent = 'Cancelling...';
+        post({ type: 'cancel-scan' });
+      } else {
+        post({ type: 'close' });
+      }
+    };
+    settingsToggle.onclick = () => {
+      const isCollapsed = document.body.classList.contains('scroll-collapsed');
+      document.body.classList.toggle('scroll-collapsed', !isCollapsed);
+      settingsToggle.textContent = isCollapsed ? 'Collapse scan settings' : 'Edit scan settings';
+    };
+    results.addEventListener('scroll', () => {
+      if (results.scrollTop > 24) {
+        document.body.classList.add('scroll-collapsed');
+        settingsToggle.textContent = 'Edit scan settings';
+      } else if (results.scrollTop <= 0) {
+        document.body.classList.remove('scroll-collapsed');
+        settingsToggle.textContent = 'Collapse scan settings';
+      }
+    });
+
+    function renderResults(result) {
+      currentResult = result;
+      document.body.classList.add('scroll-collapsed');
+      settingsToggle.textContent = 'Edit scan settings';
+      const issues = result.issues || [];
+      const activeIssues = issues.filter((issue) => !ignoredIssueIds.has(issue.id));
+      const ignoredIssues = issues.filter((issue) => ignoredIssueIds.has(issue.id));
+      let html = `<div class="summary"><strong>${activeIssues.length}</strong> active issue${activeIssues.length === 1 ? '' : 's'} found${ignoredIssues.length ? ` · ${ignoredIssues.length} ignored` : ''} · ${result.nodeCount} layer${result.nodeCount === 1 ? '' : 's'} inspected</div>`;
+      if (issues.length === 0) html += '<div class="empty">No issues found by the current checks.</div>';
+
+      for (const issue of issues) {
+        const fix = issue.fix;
+        const isIgnored = ignoredIssueIds.has(issue.id);
+        const canIgnore = ['dimensions', 'naming', 'radius', 'colors', 'styles', 'variables'].includes(issue.category);
+        const fixLabel = fix && fix.type === 'typography'
+          ? `Fix ${fix.nodeIds.length} → ${fix.targetSize}px`
+          : fix && fix.type === 'spacing'
+            ? `Fix ${fix.nodeIds.length} → ${fix.targetValue}px`
+          : fix && fix.type === 'radius'
+            ? `Fix ${fix.nodeIds.length} → ${fix.targetValue}px`
+          : fix && fix.type === 'button'
+            ? `Fix ${fix.nodeIds.length} → ${fix.targetHeight}px`
+          : fix && fix.type === 'naming'
+            ? `Rename ${fix.nodeIds.length} layer${fix.nodeIds.length === 1 ? '' : 's'}`
+          : fix && fix.type === 'dimensions'
+            ? `Resize ${fix.nodeIds.length} → ${fix.targetWidth}×${fix.targetHeight}`
+          : fix && fix.type === 'style'
+            ? `Apply “${fix.styleName}” to ${fix.nodeIds.length} layer${fix.nodeIds.length === 1 ? '' : 's'}`
+          : fix && fix.type === 'variable'
+            ? `Bind “${fix.variableName}” to ${fix.nodeIds.length} layer${fix.nodeIds.length === 1 ? '' : 's'}`
+          : fix && fix.type === 'component'
+            ? `Relink ${fix.instanceIds.length} instance${fix.instanceIds.length === 1 ? '' : 's'}`
+          : fix && fix.type === 'color'
+            ? `Apply ${fix.targetHex}`
+            : '';
+        const accessibilityDetails = issue.accessibilityDetails;
+        const issueDescription = accessibilityDetails
+          ? `<div class="accessibility-details"><strong>${escapeHtml(accessibilityDetails.layerType)}</strong> uses text <span class="color-chip" style="background:${escapeHtml(accessibilityDetails.textHex)}"></span><code>${escapeHtml(accessibilityDetails.textHex)}</code> on background <span class="color-chip" style="background:${escapeHtml(accessibilityDetails.backgroundHex)}"></span><code>${escapeHtml(accessibilityDetails.backgroundHex)}</code>: <strong>${accessibilityDetails.ratio}:1</strong> contrast.<br><span>WCAG AA requires at least ${accessibilityDetails.requiredRatio}:1 for ${escapeHtml(accessibilityDetails.textSizeLabel)} text.</span>${accessibilityDetails.suggestedHex ? `<br><span>Suggested text color: <span class="color-chip" style="background:${escapeHtml(accessibilityDetails.suggestedHex)}"></span><code>${escapeHtml(accessibilityDetails.suggestedHex)}</code> (${accessibilityDetails.suggestedRatio}:1 contrast)</span><br><button class="accessibility-copy" data-copy-hex="${escapeHtml(accessibilityDetails.suggestedHex)}">Copy ${escapeHtml(accessibilityDetails.suggestedHex)}</button>` : '<br><span>Choose a significantly darker or lighter text color in Figma’s color picker.</span>'}</div>`
+          : `<div class="issue-description">${escapeHtml(issue.description)}</div>`;
+        html += `<div class="issue" data-issue-id="${escapeHtml(issue.id)}">
+          <div class="issue-title">${escapeHtml(issue.title)}</div>
+          ${issueDescription}
+          ${!isIgnored && fix && (fix.type === 'spacing' || fix.type === 'radius' || fix.type === 'typography' || fix.type === 'button') ? `<label class="custom-spacing">Custom ${fix.type === 'typography' ? 'size' : fix.type === 'button' ? 'height' : 'target'} <input class="custom-target-value" type="number" min="0" step="0.1" value="${fix.type === 'typography' ? fix.targetSize : fix.type === 'button' ? fix.targetHeight : fix.targetValue}" /> px</label>` : ''}
+          ${!isIgnored && fix && fix.type === 'naming' ? `<label class="custom-spacing">Name prefix <input class="custom-name-value naming-value" type="text" value="${escapeHtml(fix.targetName)}" /></label>` : ''}
+          ${!isIgnored && fix && fix.type === 'dimensions' ? `<label class="custom-spacing">Custom size <input class="dimension-width dimension-value" type="number" min="1" step="0.1" value="${fix.targetWidth}" /> × <input class="dimension-height dimension-value" type="number" min="1" step="0.1" value="${fix.targetHeight}" /> px</label>` : ''}
+          ${!isIgnored && fix && fix.type === 'component' && issue.componentOptions ? `<label class="custom-spacing">Canonical component <select class="canonical-component">${issue.componentOptions.map((option) => `<option value="${escapeHtml(option.id)}" ${option.id === fix.canonicalId ? 'selected' : ''}>${escapeHtml(option.name)}</option>`).join('')}</select></label>` : ''}
+          ${!isIgnored && fix && fix.type === 'component' && issue.componentOptions ? `<label class="custom-spacing">Rename duplicates <input class="custom-target-value component-name" type="text" value="${escapeHtml(issue.componentOptions[0].name)}" /></label>` : ''}
+          <div class="issue-actions">
+            ${issue.nodeIds.length > 0 ? `<button class="select-issue" data-issue-id="${escapeHtml(issue.id)}" data-node-ids="${escapeHtml(issue.nodeIds.join(','))}">Select affected layers</button>` : ''}
+            ${!isIgnored && fix && (fix.type !== 'component' || fix.instanceIds.length > 0) ? `<button class="fix" data-fix-issue-id="${escapeHtml(issue.id)}">${escapeHtml(fixLabel)}</button>` : ''}
+            ${!isIgnored && fix && fix.type === 'component' ? `<button class="merge-components" data-merge-issue-id="${escapeHtml(issue.id)}">Merge into one component</button>` : ''}
+            ${!isIgnored && fix && fix.type === 'component' ? `<button class="merge-instance" data-instance-issue-id="${escapeHtml(issue.id)}">Merge + turn into instance</button>` : ''}
+            ${!isIgnored && fix && fix.type === 'component' ? `<button class="rename-components" data-rename-issue-id="${escapeHtml(issue.id)}">Rename duplicates</button>` : ''}
+            ${isIgnored ? '<button class="restore-issue" data-restore-issue-id="' + escapeHtml(issue.id) + '">Restore issue</button>' : canIgnore ? '<button class="ignore-issue" data-ignore-issue-id="' + escapeHtml(issue.id) + '">Ignore issue</button>' : ''}
+          </div>
+        </div>`;
+      }
+      results.innerHTML = html;
+
+      const grouped = new Map();
+      for (const issue of activeIssues) {
+        const family = issue.title.includes(':') ? issue.title.split(':')[0] : issue.title;
+        const key = `${issue.category}::${family}`;
+        const group = grouped.get(key) || { category: issue.category, family, issues: [] };
+        group.issues.push(issue);
+        grouped.set(key, group);
+      }
+      if (issues.length > 0 || lastScannedCategories.length > 0) {
+        const categoryNames = [...new Set([...lastScannedCategories, ...activeIssues.map((issue) => issue.category)])];
+        if (ignoredIssues.length > 0) categoryNames.unshift('ignored');
+        const orderedCategoryNames = [
+          ...(categoryNames.includes('ignored') ? ['ignored'] : []),
+          ...(categoryNames.includes('styles') ? ['styles'] : []),
+          ...(categoryNames.includes('variables') ? ['variables'] : []),
+          ...categoryNames.filter((category) => category !== 'ignored' && category !== 'styles' && category !== 'variables'),
+        ];
+        const tabs = document.createElement('div');
+        tabs.className = 'result-tabs';
+        tabs.innerHTML = `<button class="result-tab active" data-result-category="all">All</button>${orderedCategoryNames.map((category) => `<button class="result-tab" data-result-category="${escapeHtml(category)}">${escapeHtml(category[0].toUpperCase() + category.slice(1))}</button>`).join('')}`;
+        const groupContainer = document.createElement('div');
+        for (const [groupKey, group] of grouped) {
+          const details = document.createElement('details');
+          details.className = 'issue-group';
+          details.dataset.resultCategory = group.category;
+          details.open = true;
+          const canBulkFix = group.issues.every((issue) => issue.fix && ['color', 'typography', 'spacing', 'radius', 'button', 'dimensions', 'style', 'variable'].includes(issue.fix.type));
+          details.innerHTML = `<summary><span class="group-heading">${escapeHtml(group.family)} <span class="group-count">(${group.issues.length})</span></span>${canBulkFix ? `<button class="bulk-fix" data-bulk-group="${escapeHtml(groupKey)}" data-bulk-issue-ids="${group.issues.map((issue) => issue.id).join(',')}">Fix all ${group.issues.length}</button>` : ''}</summary>`;
+          for (const issue of group.issues) {
+            const card = results.querySelector(`[data-issue-id="${issue.id}"]`);
+            if (card) details.appendChild(card);
+          }
+          groupContainer.appendChild(details);
+        }
+        if (ignoredIssues.length > 0) {
+          const ignoredGroups = new Map();
+          for (const issue of ignoredIssues) {
+            const family = issue.title.includes(':') ? issue.title.split(':')[0] : issue.title;
+            const groupKey = `ignored::${family}`;
+            const group = ignoredGroups.get(groupKey) || { family, issues: [] };
+            group.issues.push(issue);
+            ignoredGroups.set(groupKey, group);
+          }
+          for (const [groupKey, group] of ignoredGroups) {
+            const details = document.createElement('details');
+            details.className = 'issue-group';
+            details.dataset.resultCategory = 'ignored';
+            details.open = true;
+            details.innerHTML = `<summary><span class="group-heading">${escapeHtml(group.family)} <span class="group-count">(${group.issues.length})</span></span></summary>`;
+            for (const issue of group.issues) {
+              const card = results.querySelector(`[data-issue-id="${issue.id}"]`);
+              if (card) details.appendChild(card);
+            }
+            groupContainer.appendChild(details);
+          }
+        }
+        const summary = results.querySelector('.summary');
+        if (summary) {
+          summary.after(tabs);
+          tabs.after(groupContainer);
+        } else {
+          results.append(tabs, groupContainer);
+        }
+        tabs.querySelectorAll('.result-tab').forEach((tab) => {
+          tab.onclick = () => {
+            tabs.querySelectorAll('.result-tab').forEach((candidate) => candidate.classList.remove('active'));
+            tab.classList.add('active');
+            const category = tab.dataset.resultCategory;
+            groupContainer.querySelectorAll('.issue-group').forEach((group) => {
+              group.style.display = category === 'all' || group.dataset.resultCategory === category ? '' : 'none';
+            });
+          };
+        });
+      }
+
+      results.querySelectorAll('.select-issue').forEach((button) => {
+        button.onclick = () => {
+          button.disabled = true;
+          button.textContent = 'Selecting...';
+          post({ type: 'select-nodes', selectionIssueId: button.dataset.issueId, nodeIds: button.dataset.nodeIds.split(',').filter(Boolean) });
+        };
+      });
+      results.querySelectorAll('.ignore-issue').forEach((button) => {
+        button.onclick = () => {
+          ignoredIssueIds.add(button.dataset.ignoreIssueId);
+          saveIgnoredIssues();
+          renderResults(currentResult);
+        };
+      });
+      results.querySelectorAll('.restore-issue').forEach((button) => {
+        button.onclick = () => {
+          ignoredIssueIds.delete(button.dataset.restoreIssueId);
+          saveIgnoredIssues();
+          renderResults(currentResult);
+        };
+      });
+      results.querySelectorAll('.accessibility-copy').forEach((button) => {
+        button.onclick = async () => {
+          const value = button.dataset.copyHex;
+          if (!value) return;
+          try {
+            await navigator.clipboard.writeText(value);
+            button.textContent = 'Copied ✓';
+          } catch {
+            button.textContent = value;
+          }
+        };
+      });
+      results.querySelectorAll('.bulk-fix').forEach((button) => {
+        button.onclick = () => {
+          const ids = (button.dataset.bulkIssueIds || '').split(',').filter(Boolean);
+          const bulkIssues = issues.filter((issue) => ids.includes(issue.id) && issue.fix);
+          button.disabled = true;
+          button.textContent = 'Fixing...';
+          for (const issue of bulkIssues) {
+            post({ type: 'apply-fix', issueId: issue.id, fix: issue.fix });
+          }
+        };
+      });
+      results.querySelectorAll('.fix').forEach((button) => {
+        button.onclick = () => {
+          const issue = issues.find((candidate) => candidate.id === button.dataset.fixIssueId);
+          if (!issue || !issue.fix) return;
+          const customInput = button.closest('.issue')?.querySelector('.custom-target-value');
+          const customValue = customInput ? Number(customInput.value) : NaN;
+          let fix = issue.fix;
+          const customNameInput = button.closest('.issue')?.querySelector('.custom-name-value');
+          const customWidthInput = button.closest('.issue')?.querySelector('.dimension-width');
+          const customHeightInput = button.closest('.issue')?.querySelector('.dimension-height');
+          if (issue.fix.type === 'naming' && customNameInput && customNameInput.value.trim()) {
+            fix = { ...issue.fix, targetName: customNameInput.value.trim() };
+          }
+          const canonicalSelect = button.closest('.issue')?.querySelector('.canonical-component');
+          if (issue.fix.type === 'component' && canonicalSelect && canonicalSelect.value) {
+            fix = { ...issue.fix, canonicalId: canonicalSelect.value };
+          }
+          if (Number.isFinite(customValue) && customValue >= 0) {
+            const roundedValue = Math.round(customValue * 10) / 10;
+            if (issue.fix.type === 'typography') fix = { ...issue.fix, targetSize: roundedValue };
+            if (issue.fix.type === 'spacing' || issue.fix.type === 'radius') fix = { ...issue.fix, targetValue: roundedValue };
+            if (issue.fix.type === 'button') fix = { ...issue.fix, targetHeight: roundedValue };
+          }
+          if (issue.fix.type === 'dimensions' && customWidthInput && customHeightInput) {
+            const width = Number(customWidthInput.value);
+            const height = Number(customHeightInput.value);
+            if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
+              fix = { ...issue.fix, targetWidth: Math.round(width * 10) / 10, targetHeight: Math.round(height * 10) / 10 };
+            }
+          }
+          button.dataset.preFixLabel = button.textContent || 'Fix';
+          button.disabled = true;
+          const targetValue = fix.type === 'typography' ? `${fix.targetSize}px` : fix.type === 'spacing' || fix.type === 'radius' ? `${fix.targetValue}px` : fix.type === 'button' ? `${fix.targetHeight}px` : fix.type === 'dimensions' ? `${fix.targetWidth}×${fix.targetHeight}` : null;
+          button.textContent = fix.type === 'component' ? 'Relinking...' : fix.type === 'naming' ? 'Renaming...' : fix.type === 'dimensions' ? `Resizing → ${targetValue}...` : fix.type === 'variable' ? 'Binding...' : targetValue !== null ? `Fixing → ${targetValue}...` : 'Fixing...';
+          button.dataset.fixStartedAt = String(Date.now());
+          post({ type: 'apply-fix', issueId: issue.id, fix });
+        };
+      });
+      results.querySelectorAll('.rename-components').forEach((button) => {
+        button.onclick = () => {
+          const issue = issues.find((candidate) => candidate.id === button.dataset.renameIssueId);
+          if (!issue || !issue.fix || issue.fix.type !== 'component') return;
+          const card = button.closest('.issue');
+          const nameInput = card?.querySelector('.component-name');
+          const canonicalSelect = card?.querySelector('.canonical-component');
+          const name = nameInput ? nameInput.value.trim() : '';
+          const canonicalId = canonicalSelect ? canonicalSelect.value : issue.fix.canonicalId;
+          button.dataset.preFixLabel = button.textContent || 'Rename duplicates';
+          button.disabled = true;
+          button.textContent = 'Renaming...';
+          post({ type: 'rename-components', issueId: issue.id, nodeIds: issue.fix.duplicateIds, canonicalId, name });
+        };
+      });
+      results.querySelectorAll('.merge-components').forEach((button) => {
+        button.onclick = () => {
+          const issue = issues.find((candidate) => candidate.id === button.dataset.mergeIssueId);
+          if (!issue || !issue.fix || issue.fix.type !== 'component') return;
+          const card = button.closest('.issue');
+          const canonicalSelect = card?.querySelector('.canonical-component');
+          const canonicalId = canonicalSelect ? canonicalSelect.value : issue.fix.canonicalId;
+          button.dataset.preFixLabel = button.textContent || 'Merge into one component';
+          button.disabled = true;
+          button.textContent = 'Merging...';
+          post({ type: 'apply-fix', issueId: issue.id, fix: { ...issue.fix, mode: 'merge', canonicalId } });
+        };
+      });
+      results.querySelectorAll('.merge-instance').forEach((button) => {
+        button.onclick = () => {
+          const issue = issues.find((candidate) => candidate.id === button.dataset.instanceIssueId);
+          if (!issue || !issue.fix || issue.fix.type !== 'component') return;
+          const card = button.closest('.issue');
+          const canonicalSelect = card?.querySelector('.canonical-component');
+          const canonicalId = canonicalSelect ? canonicalSelect.value : issue.fix.canonicalId;
+          button.dataset.preFixLabel = button.textContent || 'Merge + turn into instance';
+          button.disabled = true;
+          button.textContent = 'Converting...';
+          post({ type: 'apply-fix', issueId: issue.id, fix: { ...issue.fix, mode: 'instance', canonicalId } });
+        };
+      });
+    }
+
+    window.onmessage = (event) => {
+      const message = event.data.pluginMessage;
+      if (!message) return;
+      if (message.type === 'scan-results') {
+        setScanInProgress(false);
+        renderResults(message.result);
+      }
+      if (message.type === 'scan-failed') {
+        setScanInProgress(false);
+        results.innerHTML = `<div class="empty">Could not complete the scan: ${escapeHtml(message.error || 'Unknown error')}</div>`;
+      }
+      if (message.type === 'scan-progress') {
+        scanProgressLabel.textContent = message.label || 'Scanning your file… this may take a moment.';
+      }
+      if (message.type === 'scan-cancelled') {
+        setScanInProgress(false);
+        results.innerHTML = '<div class="empty">Scan cancelled. Your file was not changed.</div>';
+      }
+      if (message.type === 'selection-applied') {
+        const card = Array.from(results.querySelectorAll('[data-issue-id]')).find((candidate) => candidate.dataset.issueId === message.issueId);
+        const button = card?.querySelector('.select-issue');
+        if (button) {
+          button.disabled = false;
+          button.textContent = `Selected ${message.count} layer${message.count === 1 ? '' : 's'} ✓`;
+        }
+      }
+      if (message.type === 'selection-changed') {
+        const selectedIds = new Set(message.nodeIds || []);
+        results.querySelectorAll('.select-issue').forEach((button) => {
+          const affectedIds = (button.dataset.nodeIds || '').split(',').filter(Boolean);
+          const allAffectedSelected = affectedIds.length > 0 && affectedIds.every((id) => selectedIds.has(id));
+          if (!allAffectedSelected) {
+            button.disabled = false;
+            button.textContent = 'Select affected layers';
+          }
+        });
+      }
+      if (message.type === 'fix-applied') {
+        const card = Array.from(results.querySelectorAll('[data-issue-id]')).find((candidate) => candidate.dataset.issueId === message.issueId);
+        if (!card) return;
+        const button = message.action === 'merge'
+          ? card.querySelector('.merge-components')
+          : message.action === 'instance'
+            ? card.querySelector('.merge-instance')
+            : message.action === 'rename'
+              ? card.querySelector('.rename-components')
+              : card.querySelector('.fix');
+        if (button) {
+          button.disabled = false;
+          button.textContent = message.action === 'merge'
+            ? `Merged ${message.changed} item${message.changed === 1 ? '' : 's'} ✓`
+            : message.action === 'instance'
+              ? `Converted ${message.changed} item${message.changed === 1 ? '' : 's'} ✓`
+              : message.action === 'rename'
+                ? `Renamed ${message.changed} component${message.changed === 1 ? '' : 's'} ✓`
+                : message.action === 'naming'
+                  ? `Renamed ${message.changed} layer${message.changed === 1 ? '' : 's'} ✓`
+                : message.action === 'dimensions'
+                  ? `Resized ${message.changed} layer${message.changed === 1 ? '' : 's'} ✓`
+                : message.changed > 0 ? `Fixed ${message.changed} layer${message.changed === 1 ? '' : 's'} ✓` : 'Already up to date';
+          button.classList.add('success');
+        }
+        const description = card.querySelector('.issue-description');
+        if (description && message.changed > 0) {
+          results.querySelectorAll('.undo-fix').forEach((undoButton) => undoButton.remove());
+          card.querySelectorAll('.fixed').forEach((feedback) => feedback.remove());
+          description.insertAdjacentHTML('afterend', `<div class="fixed">✓ Successfully fixed ${message.changed} layer${message.changed === 1 ? '' : 's'}.<br><button class="undo-fix">Undo last scanner change</button></div>`);
+          const undoButton = card.querySelector('.undo-fix');
+          if (undoButton) {
+            undoButton.onclick = () => {
+              undoButton.disabled = true;
+              undoButton.textContent = 'Undoing...';
+              post({ type: 'undo-fix' });
+            };
+          }
+        }
+        results.querySelectorAll('.bulk-fix').forEach((bulkButton) => {
+          const remaining = (bulkButton.dataset.bulkIssueIds || '').split(',').filter((id) => id && id !== message.issueId);
+          bulkButton.dataset.bulkIssueIds = remaining.join(',');
+          if (remaining.length === 0) {
+            bulkButton.disabled = false;
+            bulkButton.textContent = 'Fixed all ✓';
+          }
+        });
+      }
+      if (message.type === 'fix-failed') {
+        const card = Array.from(results.querySelectorAll('[data-issue-id]')).find((candidate) => candidate.dataset.issueId === message.issueId);
+        if (!card) return;
+        const button = message.action === 'merge'
+          ? card.querySelector('.merge-components')
+          : message.action === 'instance'
+            ? card.querySelector('.merge-instance')
+            : message.action === 'rename'
+              ? card.querySelector('.rename-components')
+              : card.querySelector('.fix');
+        if (button) {
+          button.disabled = false;
+          button.textContent = 'Try again';
+        }
+        results.querySelectorAll('.bulk-fix').forEach((bulkButton) => {
+          if ((bulkButton.dataset.bulkIssueIds || '').split(',').includes(message.issueId)) {
+            bulkButton.disabled = false;
+            bulkButton.textContent = 'Try again';
+          }
+        });
+        const description = card.querySelector('.issue-description');
+        if (description) {
+          description.insertAdjacentHTML('afterend', `<div class="fixed">Could not apply the fix: ${escapeHtml(message.error || 'Unknown error')}</div>`);
+        }
+      }
+      if (message.type === 'undo-applied') {
+        results.querySelectorAll('.undo-fix').forEach((undoButton) => {
+          const card = undoButton.closest('.issue');
+          const actionButton = card?.querySelector('[data-pre-fix-label]');
+          const feedback = undoButton.closest('.fixed');
+          if (actionButton) {
+            actionButton.disabled = false;
+            actionButton.textContent = actionButton.dataset.preFixLabel || 'Fix';
+            actionButton.classList.remove('success');
+          }
+          undoButton.disabled = true;
+          undoButton.textContent = 'Undone ✓';
+          if (feedback) feedback.firstChild && (feedback.firstChild.textContent = '↶ Change undone.');
+        });
+      }
+      if (message.type === 'undo-failed') {
+        results.querySelectorAll('.undo-fix').forEach((undoButton) => {
+          undoButton.disabled = false;
+          undoButton.textContent = 'Try undo again';
+        });
+      }
+    };
+  </script>
+</body>
+</html>
