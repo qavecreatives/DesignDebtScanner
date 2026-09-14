@@ -1,3 +1,6 @@
+# Design Debt Scanner
+
+[Figma Community plugin](https://www.figma.com/community/plugin/1680216026778955417/design-debt-scanner)
 Below are the steps to get your plugin running. You can also find instructions at:
 
   https://www.figma.com/plugin-docs/plugin-quickstart-guide/
