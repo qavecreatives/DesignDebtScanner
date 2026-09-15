@@ -102,6 +102,8 @@
     .summary-actions { display: flex; gap: 6px; flex-wrap: wrap; }
     .copy-report { padding: 6px 9px; background: #0E0E0E; color: var(--figma-color-text); white-space: nowrap; }
     .copy-report.copied { color: #BDED86; }
+    #startup-error { display: none; margin: 0 0 12px; padding: 12px; border-radius: 8px; background: #0E0E0E; color: #F4A7A7; line-height: 1.45; }
+    #startup-error.visible { display: block; }
     /* Flat visual treatment: navigation tabs keep their borders; content surfaces do not. */
     #settings-toggle, #close,
     .issue, .issue-group, .issue button, .fixed, .empty,
@@ -112,6 +114,7 @@
   </style>
 </head>
 <body>
+  <div id="startup-error" role="alert"><strong>Design Debt Scanner could not start.</strong><br><span id="startup-error-message">Please close and reopen the plugin.</span></div>
   <div id="fixed-header">
   <button id="settings-toggle">Edit scan settings</button>
   <div id="scan-settings">
@@ -174,6 +177,19 @@
   <div id="results"></div>
 
   <script>
+    (() => {
+      const errorBox = document.getElementById("startup-error");
+      const errorMessage = document.getElementById("startup-error-message");
+      const showStartupError = (reason) => {
+        if (!errorBox || !errorMessage) return;
+        const detail = reason instanceof Error ? reason.message : String(reason || "Unknown startup error");
+        errorMessage.textContent = detail + ". Please close and reopen the plugin.";
+        errorBox.classList.add("visible");
+      };
+      window.addEventListener("error", (event) => showStartupError(event.error || event.message));
+      window.addEventListener("unhandledrejection", (event) => showStartupError(event.reason));
+    })();
+
     const scanButton = document.getElementById('scan');
     const closeButton = document.getElementById('close');
     const settingsToggle = document.getElementById('settings-toggle');

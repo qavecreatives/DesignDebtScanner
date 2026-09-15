@@ -181,11 +181,16 @@ type ButtonRecord = {
   nodeName: string;
 };
 
-figma.showUI(__html__, {
-  width: 420,
-  height: 700,
-  themeColors: true,
-});
+try {
+  figma.showUI(__html__, {
+    width: 420,
+    height: 700,
+    themeColors: true,
+  });
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  figma.notify("Design Debt Scanner could not start: " + message);
+}
 
 figma.on('selectionchange', () => {
   figma.ui.postMessage({
